@@ -116,7 +116,7 @@ class Snapshot:
             for key in actual: 
                 if key not in expected_data:
                     raise AssertionError(f"Key '{key}' not found in snapshot for {test_name}")
-                assert actual[key] == expected_data[key], f"Data for key '{key}' does not match snapshot for {test_name}"
+                assert actual[key] == expected_data[key], f"Actual data for key '{key}' (len = {len(actual[key])}) does not match expected snapshot for {test_name} (len = {len(expected_data[key])})"
         else:
             assert actual == expected_data, f"Data does not match snapshot for {test_name}"
         
