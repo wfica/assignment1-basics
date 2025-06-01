@@ -32,6 +32,7 @@ python-preference = "managed"
 
 [tool.pytest.ini_options]
 log_cli = true
+pythonpath = ["."]
 log_cli_level = "WARNING"
 addopts = "-s"
 
@@ -42,6 +43,11 @@ line-length = 120
 [tool.ruff.lint.extend-per-file-ignores]
 # Also ignore `E402` in all `__init__.py` files.
 "__init__.py" = ["E402", "F401", "F403", "E501"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
 
 [tool.ruff.lint]
 extend-select = ["UP"]

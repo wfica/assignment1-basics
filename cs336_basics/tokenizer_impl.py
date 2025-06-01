@@ -3,10 +3,13 @@ from collections import Counter
 import regex as re
 import heapq
 from collections import defaultdict
+from .pretokenization_example import find_chunk_boundaries
+import multiprocessing
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
-def pre_tokenize(text: str, special_tokens=["<|endoftext|>"]) -> list[list[list[int], int]]:
+
+def pre_tokenize_counter(text: str, special_tokens=["<|endoftext|>"]) -> dict[tuple[int], int]:
   
   pattern = '|'.join(re.escape(token) for token in special_tokens)
   def _get_pre_tokens_as_bytes_tuple(text: str) -> Iterable[list[int]]:
@@ -15,8 +18,22 @@ def pre_tokenize(text: str, special_tokens=["<|endoftext|>"]) -> list[list[list[
         yield tuple(byte for byte in matched_pre_token.group(0).encode('utf-8'))
 
 
+  return Counter(_get_pre_tokens_as_bytes_tuple(text))
+
+def merge_frq_tbls(frq_tbls: list[dict[tuple[int], int]]) -> list[list[list[int], int]]:
+  union = frq_tbls[0]
+  for counter in frq_tbls[1:]:
+    union.update(counter)
+  
   ret = []
-  for bytes_in_word, cnt in Counter(_get_pre_tokens_as_bytes_tuple(text)).items():
+  for bytes_in_word, cnt in union.items():
+    ret.append([list(bytes_in_word), cnt])
+  return ret
+
+
+def pre_tokenize(text: str, special_tokens=["<|endoftext|>"]) -> list[list[list[int], int]]:
+  ret = []
+  for bytes_in_word, cnt in pre_tokenize_counter(text, special_tokens).items():
     ret.append([list(bytes_in_word), cnt])
   return ret
 
@@ -40,7 +57,30 @@ def get_pairs_cnts(frq_tbl):
 def pair_idx_to_pair_of_strings(p, vocab):
   return (vocab[p[0]], vocab[p[1]])
 
-def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug_text=None):
+
+def create_frq_tbl_from_file(file_path: str, special_tokens:list[str], num_processes)-> list[list[list[int], int]]:
+  assert len(special_tokens) == 1 or num_processes == 1
+  if num_processes == 1:
+    with open(file_path, "r") as f:
+      txt = f.read()
+      return pre_tokenize(txt, special_tokens)
+  with open(file_path, "rb") as f:
+    assert len(special_tokens) == 1
+    special_token = special_tokens[0]
+    boundaries = find_chunk_boundaries(f, num_processes, special_token.encode("utf-8"))
+
+    pool = multiprocessing.Pool(processes=num_processes)
+    results = []
+    for start, end in zip(boundaries[:-1], boundaries[1:]):
+        f.seek(start)
+        chunk = f.read(end - start).decode("utf-8", errors="ignore")
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        results.append(pool.apply_async(pre_tokenize_counter, [chunk, [special_token]]))
+
+    counters = [r.get() for r in results]
+    return merge_frq_tbls(counters)
+
+def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug_text=None, num_processes=32):
   """
   Args:
     input_path: str Path to a text file with BPE tokenizer training data.
@@ -56,13 +96,8 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug
       <tokens2>. The merges should be ordered by order of creation.
   """
   assert input_path is not None or debug_text is not None
-  if input_path is not None:
-    with open(input_path, "r") as f:
-      txt = f.read()
-  else:
-    txt = debug_text
 
-  frq_tbl = pre_tokenize(txt, special_tokens)
+  frq_tbl = create_frq_tbl_from_file(input_path, special_tokens, num_processes) if input_path is not None else pre_tokenize(debug_text, special_tokens)
   vocab = get_inital_vocab(special_tokens)
   merges: list[tuple[bytes, bytes]] = []
 

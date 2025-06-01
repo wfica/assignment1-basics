@@ -1,5 +1,34 @@
 import os
 from typing import BinaryIO
+# from tests.common import FIXTURES_PATH
+import pathlib
+import multiprocessing
+from collections import Counter
+import regex as re
+from collections.abc import Iterable
+import threading
+PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+
+def pre_tokenize_counter(text: str, special_tokens=["<|endoftext|>"]) -> dict[tuple[int], int]:
+  
+  pattern = '|'.join(re.escape(token) for token in special_tokens)
+  def _get_pre_tokens_as_bytes_tuple(text: str) -> Iterable[list[int]]:
+    for chunk in re.split(pattern, text):
+      for matched_pre_token in re.finditer(PAT, chunk):
+        yield tuple(byte for byte in matched_pre_token.group(0).encode('utf-8'))
+
+
+  return Counter(_get_pre_tokens_as_bytes_tuple(text))
+
+def merge_frq_tbls(frq_tbls: list[dict[tuple[int], int]]) -> list[list[list[int], int]]:
+  union = frq_tbls[0]
+  for counter in frq_tbls[1:]:
+    union.update(counter)
+  
+  ret = []
+  for bytes_in_word, cnt in union.items():
+    ret.append([list(bytes_in_word), cnt])
+  return ret
 
 def find_chunk_boundaries(
     file: BinaryIO, 
@@ -50,13 +79,27 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 ## Usage
-with open(..., "rb") as f:
-    boundaries = find_chunk_boundaries(
-        f, num_processes, "<|endoftext|>".encode("utf-8"))
-        
-    # The following is a serial implementation, but you can parallelize this 
-    # by sending each start/end pair to a set of processes.
-    for start, end in zip(boundaries[:-1], boundaries[1:]):
-        f.seek(start)
-        chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
+
+
+num_processes = 32
+special_token = "<|endoftext|>"
+
+if __name__ == '__main__':
+    with open( pathlib.Path("/Users/fica/cs336/assignment1-basics/tests/fixtures")  / "tinystories_sample_5M.txt" , "rb") as f:
+        boundaries = find_chunk_boundaries(
+            f, num_processes, special_token.encode("utf-8"))
+
+        pool = multiprocessing.Pool(processes=num_processes)
+        results = []
+        for start, end in zip(boundaries[:-1], boundaries[1:]):
+            f.seek(start)
+            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+            # Run pre-tokenization on your chunk and store the counts for each pre-token
+            results.append(pool.apply_async(pre_tokenize_counter, [chunk, [special_token]]))
+
+        counters = [r.get() for r in results]
+        frq_table = merge_frq_tbls(counters)
+
+        print("DONE")
+        print(len(frq_table))
+    
