@@ -7,6 +7,8 @@ from collections import Counter
 import regex as re
 from collections.abc import Iterable
 import threading
+
+
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
 def pre_tokenize_counter(text: str, special_tokens=["<|endoftext|>"]) -> dict[tuple[int], int]:
@@ -99,7 +101,4 @@ if __name__ == '__main__':
 
         counters = [r.get() for r in results]
         frq_table = merge_frq_tbls(counters)
-
-        print("DONE")
-        print(len(frq_table))
     
