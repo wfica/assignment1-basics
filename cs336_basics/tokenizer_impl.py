@@ -8,6 +8,25 @@ import multiprocessing
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
+class ComparableItem:
+    def __init__(self, cnt, idx_1, idx_2, vocab):
+        self.data = (cnt, idx_1, idx_2)
+        self.integer_val = cnt
+        self.string_val1 = vocab[idx_1]
+        self.string_val2 = vocab[idx_2]
+
+    # Invert the comparison logic to create a max-heap
+    def __lt__(self, other):
+        if self.integer_val != other.integer_val:
+            return self.integer_val > other.integer_val
+    
+        if self.string_val1 != other.string_val1:
+            return self.string_val1 > other.string_val1
+      
+        return self.string_val2 > other.string_val2
+
+    def __repr__(self):
+        return f"Item({self.data})"
 
 def pre_tokenize_counter(text: str, special_tokens=["<|endoftext|>"]) -> dict[tuple[int], int]:
   
@@ -80,6 +99,14 @@ def create_frq_tbl_from_file(file_path: str, special_tokens:list[str], num_proce
     counters = [r.get() for r in results]
     return merge_frq_tbls(counters)
 
+def find_max_element(max_heap: list[ComparableItem], pairs_cnts: dict[tuple[int, int], int]):
+  while len(max_heap) > 0:
+    max_elem = heapq.heappop(max_heap)
+    # Check if the max_elem is still valid
+    if max_elem.data[0] == pairs_cnts[(max_elem.data[1], max_elem.data[2])]:
+      return max_elem.data[1], max_elem.data[2]  # Return the pair of indices
+  return None
+
 def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug_text=None, num_processes=32):
   """
   Args:
@@ -103,12 +130,17 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug
 
   # Get the initial counts of pairs and a mapping between pairs and word_idx
   pairs_to_word_idx, pairs_cnts = get_pairs_cnts(frq_tbl)
+  max_heap = []
+  for pair, cnt in pairs_cnts.items():
+    max_heap.append(ComparableItem(cnt, pair[0], pair[1], vocab))
+  heapq.heapify(max_heap)
 
   # Start merges
   while len(vocab) < vocab_size:
     # find the most common pair, first order by occurrences counts, resolve ties by lexicographic order
-    most_frq_pair, _most_frq_pair_cnt = max(pairs_cnts.items(), key=lambda x: (x[1],pair_idx_to_pair_of_strings(x[0], vocab)))
-    
+    most_frq_pair = find_max_element(max_heap, pairs_cnts)
+    if most_frq_pair is None:
+      break  # No more pairs to merge
     merges.append((vocab[most_frq_pair[0]], vocab[most_frq_pair[1]]))
     # remove it from the dict
     pairs_cnts[most_frq_pair] = 0
@@ -128,12 +160,16 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug
           # update the previous pair
           if i > 0:
             pairs_cnts[(old_indexes[i-1], old_indexes[i])] -= word_cnt
+            heapq.heappush(max_heap, ComparableItem(pairs_cnts[(old_indexes[i-1], old_indexes[i])], old_indexes[i-1], old_indexes[i], vocab))
             pairs_cnts[(old_indexes[i-1], new_token)] += word_cnt
+            heapq.heappush(max_heap, ComparableItem(pairs_cnts[(old_indexes[i-1], new_token)], old_indexes[i-1], new_token, vocab))
             pairs_to_word_idx[(old_indexes[i-1], new_token)].append(word_idx)
           # update the following pair
           if i < len(old_indexes)-2:
             pairs_cnts[(old_indexes[i+1], old_indexes[i+2])] -= word_cnt
+            heapq.heappush(max_heap, ComparableItem(pairs_cnts[(old_indexes[i+1], old_indexes[i+2])], old_indexes[i+1], old_indexes[i+2], vocab))
             pairs_cnts[(new_token, old_indexes[i+2])] += word_cnt
+            heapq.heappush(max_heap, ComparableItem(pairs_cnts[(new_token, old_indexes[i+2])], new_token, old_indexes[i+2], vocab))
             pairs_to_word_idx[(new_token, old_indexes[i+2])].append(word_idx)
           i += 2
         else:
