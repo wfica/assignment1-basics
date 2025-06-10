@@ -6,6 +6,7 @@ from collections import defaultdict
 import multiprocessing
 from typing import BinaryIO
 import os
+import pickle
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
@@ -78,16 +79,21 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
-def pre_tokenize_counter(text: str, special_tokens=["<|endoftext|>"]) -> dict[tuple[int], int]:
-  
-  pattern = '|'.join(re.escape(token) for token in special_tokens)
-  def _get_pre_tokens_as_bytes_tuple(text: str) -> Iterable[list[int]]:
+def pre_tokenize(text: str, special_tokens=["<|endoftext|>"], special_token_to_index:dict[str, int] | None=None) -> Iterable[tuple[int]]:
+  if special_tokens is not None and len(special_tokens) > 0:
+    pattern = '|'.join(re.escape(token) for token in special_tokens)
+    if special_token_to_index is not None:
+      pattern = "(" + pattern + ")"
     for chunk in re.split(pattern, text):
+      if special_token_to_index is not None and chunk in special_token_to_index:
+        yield (special_token_to_index[chunk],)
+        continue
       for matched_pre_token in re.finditer(PAT, chunk):
         yield tuple(byte for byte in matched_pre_token.group(0).encode('utf-8'))
+  else:
+    for matched_pre_token in re.finditer(PAT, text):
+      yield tuple(byte for byte in matched_pre_token.group(0).encode('utf-8'))
 
-
-  return Counter(_get_pre_tokens_as_bytes_tuple(text))
 
 def merge_frq_tbls(frq_tbls: list[dict[tuple[int], int]]) -> list[list[list[int], int]]:
   union = frq_tbls[0]
@@ -100,11 +106,15 @@ def merge_frq_tbls(frq_tbls: list[dict[tuple[int], int]]) -> list[list[list[int]
   return ret
 
 
-def pre_tokenize(text: str, special_tokens=["<|endoftext|>"]) -> list[list[list[int], int]]:
+def pre_tokenize_and_count(text: str, special_tokens=["<|endoftext|>"]) -> list[list[list[int], int]]:
   ret = []
-  for bytes_in_word, cnt in pre_tokenize_counter(text, special_tokens).items():
+  cnts = Counter(pre_tokenize(text, special_tokens))
+  for bytes_in_word, cnt in cnts.items():
     ret.append([list(bytes_in_word), cnt])
   return ret
+
+def pre_tokenize_counter(text: str, special_tokens=["<|endoftext|>"]) -> list[list[list[int], int]]:
+   return Counter(pre_tokenize(text, special_tokens))
 
 def get_inital_vocab(special_tokens=["<|endoftext|>"]) -> dict[int, bytes]:
   vocab: dict[bytes, int] = {i: bytes([i]) for i in range(0, 256)}
@@ -132,7 +142,7 @@ def create_frq_tbl_from_file(file_path: str, special_tokens:list[str], num_proce
   if num_processes == 1:
     with open(file_path, "r") as f:
       txt = f.read()
-      return pre_tokenize(txt, special_tokens)
+      return pre_tokenize_and_count(txt, special_tokens)
   with open(file_path, "rb") as f:
     assert len(special_tokens) == 1
     special_token = special_tokens[0]
@@ -174,7 +184,7 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug
   """
   assert input_path is not None or debug_text is not None
 
-  frq_tbl = create_frq_tbl_from_file(input_path, special_tokens, num_processes) if input_path is not None else pre_tokenize(debug_text, special_tokens)
+  frq_tbl = create_frq_tbl_from_file(input_path, special_tokens, num_processes) if input_path is not None else pre_tokenize_and_count(debug_text, special_tokens)
   vocab = get_inital_vocab(special_tokens)
   merges: list[tuple[bytes, bytes]] = []
 
@@ -228,3 +238,100 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str], debug
       frq_tbl[word_idx] = (new_indexes, word_cnt)
 
   return vocab, merges
+
+class Tokenizer:
+  def _add_missing_special_tokens_to_vocab(self, special_tokens: list[str] | None):
+    if special_tokens is None:
+        return
+    assert type(special_tokens) == list
+    for token in special_tokens:
+      found = False
+      for idx, bs in self.vocab.items():
+        if bs.decode("utf-8", "ignore") == token:
+          self.special_token_to_index[token] = idx
+          found = True
+          break
+      if not found:
+        self.special_token_to_index[token] = len(self.vocab)
+        self.vocab[len(self.vocab)] = token.encode("utf-8")
+
+        
+  def __init__(self, vocab: dict[int, bytes], merges:list[tuple[bytes, bytes]], special_tokens: list[str] | None  = None):
+    """Construct a tokenizer from a given vocabulary, list of merges, and (optionally) a list of special tokens.
+    """
+    self.vocab = vocab
+    self.special_tokens = special_tokens
+    self.special_token_to_index = dict()
+    self._add_missing_special_tokens_to_vocab(special_tokens)
+    self.bytes_to_index = {bts: idx for idx, bts in self.vocab.items()}
+    self.merges = [(self.bytes_to_index[bts1], self.bytes_to_index[bts2], self.bytes_to_index[bts1 + bts2]) for bts1, bts2 in merges]
+
+  @classmethod
+  def from_files(cls, vocab_filepath:str, merges_filepath:str, special_tokens: list[str] | None = None) -> "Tokenizer":
+    """Class method that constructs and return a Tokenizer from a serialized vocabulary and list of merges
+      (in the same format that your BPE training code output) and (optionally) a list of special tokens.
+    """
+    with open(vocab_filepath, "rb") as f:
+      vocab = pickle.load(f)
+    assert type(vocab) == dict
+    with open(merges_filepath, "rb") as f:
+        merges = pickle.load(f)
+    assert type(merges) == list
+    return cls(vocab, merges, special_tokens)
+    
+  
+  def _merge(self, merge_pair: tuple[int, int], new_idx:int, indexes: list[int]) -> list[int]:
+    if len(indexes) < 2:
+       return indexes
+    new_word = []
+    i = 0
+    while i < len(indexes):
+      if i + 1 < len(indexes) and indexes[i] == merge_pair[0] and indexes[i+1] == merge_pair[1]:
+        new_word.append(new_idx)
+        i += 2
+      else:
+        new_word.append(indexes[i])
+        i += 1
+    return new_word
+            
+
+  def _encode_word(self, word: list[bytes]) -> list[int]:
+    indexes = [self.bytes_to_index[bytes([byte])] for byte in word]
+    for merge_pair_1, merge_pair_2, new_idx in self.merges:
+      indexes = self._merge((merge_pair_1, merge_pair_2), new_idx, indexes)
+    return indexes
+
+  def _encode(self, text: str) -> Iterable[int]:
+    for word in pre_tokenize(text, self.special_tokens, self.special_token_to_index):
+        if len(word) == 1 and word[0] in self.special_token_to_index.values():
+           yield word[0]
+           continue
+        for idx in self._encode_word(word):
+          yield idx
+
+  def encode(self, text: str) -> list[int]:
+    """Encode an input text into a sequence of token IDs."""
+    return list(self._encode(text))
+  
+  def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
+    """Given an iterable of strings (e.g., a Python file handle), return a generator that lazily yields token IDs.
+    This is required for memory-eﬀicient tokenization of large files that we cannot directly load into memory."""
+    for chunk in iterable:
+      for idx in self._encode(chunk):
+        yield idx
+
+    
+  
+  def decode(self, ids: list[int]) -> str:
+    """Decode a sequence of token IDs into text."""
+    bts = [self.vocab[idx] for idx in ids]
+    return b"".join(bts).decode("utf-8", errors='replace')
+
+
+    
+
+
+    
+
+
+    
