@@ -9,9 +9,9 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 from cs336_basics.tokenizer_impl import train_bpe, Tokenizer
-from cs336_basics.transformer_impl import Linear
+from cs336_basics.transformer_impl import Linear, Embedding
 from torch import nn
-from torchsummary import summary
+from torchinfo import summary
 
 
 def run_linear(
@@ -35,6 +35,11 @@ def run_linear(
 
     m = Linear(d_in, d_out)
     m.load_state_dict({"W": weights})
+    # print(m)
+    # for name, param in m.named_parameters():
+    #     print(f"{name}: {param.size()}")
+    # batch_size = 100
+    # print(summary(m, input_size=(batch_size, d_in)))
     return m(in_features)
 
 
@@ -56,8 +61,9 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-
-    raise NotImplementedError
+    m = Embedding(vocab_size, d_model)
+    m.load_state_dict({"E": weights})
+    return m(token_ids)
 
 
 def run_swiglu(
@@ -307,7 +313,7 @@ def run_transformer_lm(
             evenly divisible by `num_heads`.
         d_ff (int): Dimensionality of the feed-forward inner layer (section 3.3).
         rope_theta (float): The RoPE $\Theta$ parameter.
-        weights (dict[str, Tensor]): 
+        weights (dict[str, Tensor]):
             State dict of our reference implementation. {num_layers} refers to an
             integer between `0` and `num_layers - 1` (the layer index).
             The keys of this dictionary are:
