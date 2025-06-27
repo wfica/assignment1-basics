@@ -95,3 +95,37 @@ class RMSNorm(nn.Module):
         )  # (b s d)
         result = einsum(scaled_activations, self.g, "... d, d -> ... d")  # (b s d)
         return result.to(in_dtype)
+
+
+class FFNSwiGLU(nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        d_ff: int | None = None,
+        device: torch.device | None = None,
+        dtype: torch.device | None = None,
+    ):
+        """Constructs a FF layer with a SwiGLU activations.
+        FFN(x) = SwiGLU(x, W1, W2, W3) = W2(SiLU(W1x) ⊙ W3x).
+        Does not use biases.
+        * d_model: int Hidden dimension of the model
+        * d_ff: int | None = None Defaults to the nearest 64-multiple of 8 / 3 * d_model.
+        * device: torch.device | None = None Device to store the parameters on
+        * dtype: torch.dtype | None = None Data type of the parameters"""
+        super().__init__()
+        self.d_model = d_model
+        if d_ff is None:
+            d_ff = int(8 / 3 * d_model)
+            d_ff = min(64, (d_ff // 64) * 64)
+            assert d_ff % 64 == 0
+        self.d_ff = d_ff
+        self.W1 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        self.W3 = Linear(d_model, d_ff, device=device, dtype=dtype)
+        self.W2 = Linear(d_ff, d_model, device=device, dtype=dtype)
+
+    def silu(self, x: torch.Tensor) -> torch.Tensor:
+        return x * torch.sigmoid(x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.W2(self.silu(self.W1(x)) * self.W3(x))

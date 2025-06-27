@@ -9,7 +9,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 from cs336_basics.tokenizer_impl import train_bpe, Tokenizer
-from cs336_basics.transformer_impl import Linear, Embedding, RMSNorm
+from cs336_basics.transformer_impl import Linear, Embedding, RMSNorm, FFNSwiGLU
 from torch import nn
 from torchinfo import summary
 
@@ -95,7 +95,9 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    m = FFNSwiGLU(d_model, d_ff)
+    m.load_state_dict({"W1.W": w1_weight, "W2.W": w2_weight, "W3.W": w3_weight})
+    return m(in_features)
 
 
 def run_scaled_dot_product_attention(
