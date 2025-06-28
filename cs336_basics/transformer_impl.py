@@ -129,3 +129,64 @@ class FFNSwiGLU(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.W2(self.silu(self.W1(x)) * self.W3(x))
+
+
+class RotaryPositionalEmbedding(nn.Module):
+
+    def __init__(
+        self,
+        theta: float,
+        d_k: int,
+        max_seq_len: int,
+        device: torch.device | None = None,
+    ):
+        """Construct the RoPE module and create buffers if needed.
+        * theta: float Θ value for the RoPE
+        * d_k: int dimension of query and key vectors
+        * max_seq_len: int Maximum sequence length that will be inputted
+        * device: torch.device | None = None Device to store the buffer on"""
+        super().__init__()
+        self.theta = theta
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
+        positions = torch.arange(
+            0, max_seq_len, dtype=torch.float32, device=device
+        )  # (max_seq_len)
+        exponents = theta ** (
+            -torch.arange(0, d_k, 2, dtype=torch.float32, device=device) / d_k
+        )
+        exponents = torch.stack([exponents, exponents], dim=-1).flatten()  # (d_k)
+        Thetas = einsum(positions, exponents, "l, d -> l d")
+        self.register_buffer(
+            "Cosines", torch.cos(Thetas), persistent=False
+        )  # (max_seq_len, d_k)
+        self.register_buffer(
+            "Sines", torch.sin(Thetas), persistent=False
+        )  # (max_seq_len, d_k)
+
+    def _flip_tensor(self, x: torch.Tensor) -> torch.Tensor:
+        """Given vector (x_1, x_2, x_3, ..., x_n) returns (-x_2, x_1, -x_4, x_3, ..., -x_n, x_{n-1}) Supports arbitrary batch dimentions before the final dimention."""
+        x_even = torch.gather(
+            x, -1, torch.arange(0, x.shape[-1], 2).expand(x.shape[:-1] + (-1,))
+        )
+        x_odd = torch.gather(
+            x, -1, torch.arange(1, x.shape[-1], 2).expand(x.shape[:-1] + (-1,))
+        )
+        x_flipped = torch.stack([-x_odd, x_even], dim=-1).flatten(start_dim=-2)
+        assert x_flipped.shape == x.shape
+        return x_flipped
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        """Process an input tensor of shape (..., seq_len, d_k) and return a tensor of the same shape.
+        Note that you should tolerate x with an arbitrary number of batch dimensions.
+        You should assume that the token positions are a tensor of shape (..., seq_len)
+        specifying the token positions of x along the sequence dimension.
+        You should use the token positions to slice your (possibly precomputed)
+        cos and sin tensors along the sequence dimension.
+         * x: input tensor of shape (..., seq_len, d_k)
+         * token_positions: a tensor of shape (..., seq_len)"""
+        x_flipped = self._flip_tensor(x)
+        rotated_x = (
+            self.Cosines[token_positions] * x + self.Sines[token_positions] * x_flipped
+        )
+        return rotated_x

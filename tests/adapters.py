@@ -9,7 +9,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 from cs336_basics.tokenizer_impl import train_bpe, Tokenizer
-from cs336_basics.transformer_impl import Linear, Embedding, RMSNorm, FFNSwiGLU
+from cs336_basics.transformer_impl import Linear, Embedding, RMSNorm, FFNSwiGLU, RotaryPositionalEmbedding
 from torch import nn
 from torchinfo import summary
 
@@ -214,7 +214,8 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    m = RotaryPositionalEmbedding(theta, d_k, max_seq_len)
+    return m(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
