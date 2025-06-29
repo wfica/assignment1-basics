@@ -9,7 +9,14 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 from cs336_basics.tokenizer_impl import train_bpe, Tokenizer
-from cs336_basics.transformer_impl import Linear, Embedding, RMSNorm, FFNSwiGLU, RotaryPositionalEmbedding
+from cs336_basics.transformer_impl import (
+    Linear,
+    Embedding,
+    RMSNorm,
+    FFNSwiGLU,
+    RotaryPositionalEmbedding,
+    softmax,
+)
 from torch import nn
 from torchinfo import summary
 
@@ -448,7 +455,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return softmax(in_features, dim=dim)
 
 
 def run_cross_entropy(
