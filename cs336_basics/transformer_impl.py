@@ -196,3 +196,27 @@ def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
     x_scaled = x - torch.max(x, dim=dim, keepdim=True)[0]
     e_scaled_x = torch.exp(x_scaled)
     return e_scaled_x / torch.sum(e_scaled_x, dim=dim, keepdim=True)
+
+
+def scaled_dot_product_attention(
+    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None = None
+) -> torch.Tensor:
+    """Attention(Q, K, V) = softmax(Q.T @ K / √d_k) @ V
+    * Q.shape = [batch_size, ..., seq_len, d_k]
+    * K.shape = [batch_size, ..., seq_len, d_k]
+    * V.shape = [batch_size, ..., seq_len, d_v]
+    * mask.shape = [seq_len, seq_len]
+    Returns a rensor of shape [batch_size, ..., seq_len, d_v]"""
+    weights = einsum(q, k, "b ... n1 k, b ... n2 k -> b ... n1 n2") / (
+        q.shape[-1] ** 0.5
+    )
+    if mask is not None:
+        mask = torch.where(
+            mask,
+            torch.zeros_like(mask, dtype=weights.dtype),
+            torch.full_like(mask, float("-inf"), dtype=weights.dtype),
+        )
+        weights += mask
+    normed_weights = softmax(weights, dim=len(weights.shape) - 1)
+    out = einsum(normed_weights, v, "b ... n1 n2, b ... n2 d_v -> b ... n1 d_v")
+    return out
