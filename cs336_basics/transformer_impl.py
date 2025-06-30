@@ -220,3 +220,73 @@ def scaled_dot_product_attention(
     normed_weights = softmax(weights, dim=len(weights.shape) - 1)
     out = einsum(normed_weights, v, "b ... n1 n2, b ... n2 d_v -> b ... n1 d_v")
     return out
+
+
+class MultiheadSelfAttention(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        rope_module: nn.Module | None = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        self.rope = rope_module
+        self.d_model = d_model
+        self.num_heads = num_heads
+        assert d_model % num_heads == 0
+        self.d_k = d_model // num_heads
+        self.d_v = d_model // num_heads
+        self.Wq = Linear(
+            self.d_model, self.num_heads * self.d_k, device=device, dtype=dtype
+        )
+        self.Wk = Linear(
+            self.d_model, self.num_heads * self.d_k, device=device, dtype=dtype
+        )
+        self.Wv = Linear(
+            self.d_model, self.num_heads * self.d_v, device=device, dtype=dtype
+        )
+        self.Wo = Linear(
+            self.num_heads * self.d_v, self.d_model, device=device, dtype=dtype
+        )
+
+    def forward(
+        self, x: torch.Tensor, token_positions: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """
+        Args:
+         * x.shape = [..., seq_len, d_model]
+         * token_positions (Int[Tensor, " ... sequence_length"] | None): Optional tensor with the positions of the tokens
+        Returns a vector of the same shape"""
+        seq_len = x.shape[-2]
+        assert self.rope is None or token_positions is not None
+        token_positions = (
+            token_positions if token_positions is not None else torch.arange(seq_len)
+        )
+        Q = rearrange(
+            self.Wq(x),
+            "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k",
+            num_heads=self.num_heads,
+        )
+        Q_rotated = self.rope(Q, token_positions) if self.rope is not None else Q
+        K = rearrange(
+            self.Wk(x),
+            "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k",
+            num_heads=self.num_heads,
+        )
+        K_rotated = self.rope(K, token_positions) if self.rope is not None else K
+        V = rearrange(
+            self.Wv(x),
+            "... seq_len (num_heads d_v) -> ... num_heads seq_len d_v",
+            num_heads=self.num_heads,
+        )
+        # casual attention mask
+        mask = (1 - torch.triu(torch.ones(seq_len, seq_len), diagonal=1)).to(bool)
+        atten_output = scaled_dot_product_attention(Q_rotated, K_rotated, V, mask)
+        atten_output_concatenated = rearrange(
+            atten_output,
+            "... num_heads seq_len d_v -> ... seq_len (num_heads d_v)",
+            num_heads=self.num_heads,
+        )
+        return self.Wo(atten_output_concatenated)

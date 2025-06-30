@@ -17,6 +17,7 @@ from cs336_basics.transformer_impl import (
     RotaryPositionalEmbedding,
     softmax,
     scaled_dot_product_attention,
+    MultiheadSelfAttention,
 )
 from torch import nn
 from torchinfo import summary
@@ -160,7 +161,16 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    m = MultiheadSelfAttention(d_model, num_heads)
+    m.load_state_dict(
+        {
+            "Wq.W": q_proj_weight,
+            "Wk.W": k_proj_weight,
+            "Wv.W": v_proj_weight,
+            "Wo.W": o_proj_weight,
+        }
+    )
+    return m(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -200,7 +210,19 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    rope = RotaryPositionalEmbedding(
+        theta, d_k=d_model // num_heads, max_seq_len=max_seq_len
+    )
+    m = MultiheadSelfAttention(d_model, num_heads, rope_module=rope)
+    m.load_state_dict(
+        {
+            "Wq.W": q_proj_weight,
+            "Wk.W": k_proj_weight,
+            "Wv.W": v_proj_weight,
+            "Wo.W": o_proj_weight,
+        }
+    )
+    return m(in_features, token_positions)
 
 
 def run_rope(
@@ -323,7 +345,7 @@ def run_transformer_lm(
         num_heads (int): Number of heads to use in multi-headed attention. `d_model` must be
             evenly divisible by `num_heads`.
         d_ff (int): Dimensionality of the feed-forward inner layer (section 3.3).
-        rope_theta (float): The RoPE $\Theta$ parameter.
+        rope_theta (float): The RoPE Theta parameter.
         weights (dict[str, Tensor]):
             State dict of our reference implementation. {num_layers} refers to an
             integer between `0` and `num_layers - 1` (the layer index).
