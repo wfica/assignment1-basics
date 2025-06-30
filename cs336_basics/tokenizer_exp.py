@@ -1,6 +1,6 @@
 import pickle
 from typing import Any
-from .tokenizer_impl import Tokenizer, find_chunk_boundaries
+from cs336_basics.tokenizer_impl import Tokenizer, find_chunk_boundaries
 import time
 import multiprocessing
 import numpy as np

@@ -1,4 +1,4 @@
-from .tokenizer_impl import train_bpe
+from cs336_basics.tokenizer_impl import train_bpe
 import pickle
 import time
 
