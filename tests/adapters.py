@@ -18,6 +18,7 @@ from cs336_basics.transformer_impl import (
     softmax,
     scaled_dot_product_attention,
     MultiheadSelfAttention,
+    TransformerBlock,
 )
 from torch import nn
 from torchinfo import summary
@@ -318,7 +319,22 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    rope = RotaryPositionalEmbedding(theta, d_model // num_heads, max_seq_len)
+    trans_block = TransformerBlock(d_model, num_heads, d_ff, rope)
+    params_names_mapping = {
+        "attn.q_proj.weight": "mha.Wq.W",
+        "attn.k_proj.weight": "mha.Wk.W",
+        "attn.v_proj.weight": "mha.Wv.W",
+        "attn.output_proj.weight": "mha.Wo.W",
+        "ln1.weight": "rms_norm_1.g",
+        "ffn.w1.weight": "ff.W1.W",
+        "ffn.w2.weight": "ff.W2.W",
+        "ffn.w3.weight": "ff.W3.W",
+        "ln2.weight": "rms_norm_2.g",
+    }
+    weights = {params_names_mapping[k]: v for k, v in weights.items()}
+    trans_block.load_state_dict(weights)
+    return trans_block(in_features)
 
 
 def run_transformer_lm(

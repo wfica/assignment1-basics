@@ -260,7 +260,6 @@ class MultiheadSelfAttention(nn.Module):
          * token_positions (Int[Tensor, " ... sequence_length"] | None): Optional tensor with the positions of the tokens
         Returns a vector of the same shape"""
         seq_len = x.shape[-2]
-        assert self.rope is None or token_positions is not None
         token_positions = (
             token_positions if token_positions is not None else torch.arange(seq_len)
         )
@@ -290,3 +289,41 @@ class MultiheadSelfAttention(nn.Module):
             num_heads=self.num_heads,
         )
         return self.Wo(atten_output_concatenated)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        rope_module: nn.Module | None = None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """Transformer block with norm pre MHA/FF.
+        Args:
+         * d_model: int Dimensionality of the Transformer block inputs.
+         * num_heads: int Number of heads to use in multi-head self-attention.
+         * d_ff: int Dimensionality of the position-wise feed-forward inner layer."""
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_ff = d_ff
+        self.rope = rope_module
+        self.device = device
+        self.dtype = dtype
+        self.rms_norm_1 = RMSNorm(self.d_model)
+        self.mha = MultiheadSelfAttention(
+            self.d_model, self.num_heads, self.rope, self.device, self.dtype
+        )
+        self.rms_norm_2 = RMSNorm(self.d_model)
+        self.ff = FFNSwiGLU(self.d_model, self.d_ff, self.device, self.dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Output has the same dimentions as input.
+        Args:
+         * x.shape = [b, seq_len, d_model]"""
+        y_1 = x + self.mha(self.rms_norm_1(x))
+        y_2 = y_1 + self.ff(self.rms_norm_2(y_1))
+        return y_2
