@@ -19,6 +19,7 @@ from cs336_basics.transformer_impl import (
     scaled_dot_product_attention,
     MultiheadSelfAttention,
     TransformerBlock,
+    Transformer,
 )
 from torch import nn
 from torchinfo import summary
@@ -416,7 +417,36 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+
+    def params_names_mapping_for_block(i: int):
+        return {
+            f"layers.{i}.ln1.weight": f"bloks.{i}.rms_norm_1.g",
+            f"layers.{i}.attn.q_proj.weight": f"bloks.{i}.mha.Wq.W",
+            f"layers.{i}.attn.k_proj.weight": f"bloks.{i}.mha.Wk.W",
+            f"layers.{i}.attn.v_proj.weight": f"bloks.{i}.mha.Wv.W",
+            f"layers.{i}.attn.output_proj.weight": f"bloks.{i}.mha.Wo.W",
+            f"layers.{i}.ln2.weight": f"bloks.{i}.rms_norm_2.g",
+            f"layers.{i}.ffn.w1.weight": f"bloks.{i}.ff.W1.W",
+            f"layers.{i}.ffn.w3.weight": f"bloks.{i}.ff.W3.W",
+            f"layers.{i}.ffn.w2.weight": f"bloks.{i}.ff.W2.W",
+        }
+
+    params_names_mapping = {
+        "token_embeddings.weight": "embeddings.E",
+        "ln_final.weight": "rms_norm.g",
+        "lm_head.weight": "projection.W",
+    } | {
+        old: new
+        for i in range(num_layers)
+        for old, new in params_names_mapping_for_block(i).items()
+    }
+    weights = {params_names_mapping[k]: v for k, v in weights.items()}
+
+    m = Transformer(
+        vocab_size, context_length, num_layers, d_model, num_heads, d_ff, rope_theta
+    )
+    m.load_state_dict(weights)
+    return m(in_indices)
 
 
 def run_rmsnorm(

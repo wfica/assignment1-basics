@@ -327,3 +327,68 @@ class TransformerBlock(nn.Module):
         y_1 = x + self.mha(self.rms_norm_1(x))
         y_2 = y_1 + self.ff(self.rms_norm_2(y_1))
         return y_2
+
+
+class Transformer(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        context_length: int,
+        num_layers: int,
+        d_model: int,
+        num_heads: int,
+        d_ff: int,
+        rope_theta: float,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        """Accepts all the args that the TransformerBlock do.
+        Args:
+         * vocab_size: int The size of the vocabulary, necessary for determining the dimensionality of the token embedding matrix.
+         * context_length: int The maximum context length, necessary for determining the dimensionality of the position embedding matrix.
+         * num_layers: int The number of Transformer blocks to use."""
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.context_length = context_length
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.embeddings = Embedding(
+            self.vocab_size, self.d_model, device=device, dtype=dtype
+        )
+        self.rope = RotaryPositionalEmbedding(
+            rope_theta, self.d_k, self.context_length, device=device
+        )
+        self.bloks = nn.ModuleList(
+            [
+                TransformerBlock(
+                    self.d_model,
+                    self.num_heads,
+                    self.d_ff,
+                    self.rope,
+                    device=device,
+                    dtype=dtype,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.rms_norm = RMSNorm(self.d_model)
+        self.projection = Linear(self.d_model, self.vocab_size)
+
+    def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
+        """Expects a tensor with input indices to run the language model on. Shape is (batch_size, sequence_length), where
+            `sequence_length` is at most `context_length`. Does not apply softmax at the end.
+        Args:
+         * in_indices of shape Int[Tensor, "batch_size sequence_length"]
+        Returns:
+        * Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
+        next-word distribution for each token."""
+        x = self.embeddings(in_indices)
+        for block in self.bloks:
+            x = block(x)
+        x = self.rms_norm(x)
+        x = self.projection(x)
+        return x
+        # y = softmax(x, -1)
+        # return y
