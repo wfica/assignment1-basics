@@ -9,6 +9,9 @@ def print_model():
     pass
 
 
+def is_meta(model: nn.Module):
+    return all(param.device.type == "meta" for param in model.parameters())
+
 class Linear(nn.Module):
 
     def __init__(
@@ -384,11 +387,11 @@ class Transformer(nn.Module):
         Returns:
         * Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token."""
-        x = self.embeddings(in_indices)
+        x = self.embeddings(in_indices) # (b s d_model)
         for block in self.bloks:
-            x = block(x)
-        x = self.rms_norm(x)
-        x = self.projection(x)
+            x = block(x) # (b s d_model) 
+        x = self.rms_norm(x)  # (b s d_model)
+        x = self.projection(x)  # (b s d_model)
         return x
         # y = softmax(x, -1)
         # return y
