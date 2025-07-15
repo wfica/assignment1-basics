@@ -23,6 +23,7 @@ from cs336_basics.transformer_impl import (
 )
 from torch import nn
 from torchinfo import summary
+from cs336_basics.training_impl import cross_entropy
 
 
 def run_linear(
@@ -542,7 +543,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    return cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(
