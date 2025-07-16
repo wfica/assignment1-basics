@@ -7,6 +7,7 @@ import numpy as np
 from einops import rearrange, einsum
 import matplotlib.pyplot as plt
 
+
 def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> float:
     """A function to compute the cross entropy loss, which takes in predicted logits
     (o_i) and targets (x_{i+1}) and computes the cross entropy l_i =-log softmax(o_i)[x_{i+1}].
@@ -28,13 +29,14 @@ def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> float:
     )
     return nll.mean()
 
+
 class SGD(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3):
         if lr <= 0:
             raise ValueError(f"Invalid learning rate: {lr}.")
         defaults = {"lr": lr}
         super().__init__(params, defaults)
-    
+
     def step(self, closure: Optional[Callable] = None):
         loss = None if closure is None else closure()
         for group in self.param_groups:
@@ -45,10 +47,11 @@ class SGD(torch.optim.Optimizer):
                 state = self.state[p]
                 t = state.get("t", 0)
                 grad = p.grad.data
-                p.data -= lr / math.sqrt(t+1) * grad
-                state["t"] = t+1
+                p.data -= lr / math.sqrt(t + 1) * grad
+                state["t"] = t + 1
         return loss
-    
+
+
 def toy_training_example(optimizer, training_steps=10, **optimizer_defaults):
     weights = torch.nn.Parameter(5 * torch.randn((10, 10)))
     opt = optimizer([weights], **optimizer_defaults)
@@ -61,33 +64,49 @@ def toy_training_example(optimizer, training_steps=10, **optimizer_defaults):
         opt.step()
     return losses
 
+
 def test_toy_training():
     lrs = [1e1, 1e2, 1e3]
     losses = [toy_training_example(SGD, lr=lr) for lr in lrs]
     for lr, loss in zip(lrs, losses):
-      print(lr, [int(l) for l in loss])
+        print(lr, [int(l) for l in loss])
+
+
 # 10.0 [23, 15, 11, 8, 7, 5, 5, 4, 3, 3] did not coverge to 0 in 10 steps
 # 100.0 [21, 21, 3, 0, 0, 0, 0, 0, 0, 0] coverged to 0 in 4 steps
 # 1000.0 [33, 11914, 2057819, 228910400, 18541742080, 1170196398080, 60074051502080, 2584642867691520, 95264410439778304, 3059046407391412224] diverged
 
 
 class AdamW(torch.optim.Optimizer):
-    def __init__(self, params, lr=0.001, betas=(0.9, 0.999), weight_decay=0.01, eps=1e-8):
+    def __init__(
+        self, params, lr=0.001, betas=(0.9, 0.999), weight_decay=0.01, eps=1e-8
+    ):
         """Args:
-         * params - model parameteres (might be parameter group)
-         * lr: default learning rate
-         * betas: tuple with (scaling of gradient estimate, scaling of gradient square estimate)
-         * weight_decay: scaling for weight decay
-         * eps: for numerical stability"""
-        defaults = {"lr": lr, "b1":betas[0], "b2": betas[1], "wd": weight_decay, "eps": eps}
-        print(defaults)
+        * params - model parameteres (might be parameter group)
+        * lr: default learning rate
+        * betas: tuple with (scaling of gradient estimate, scaling of gradient square estimate)
+        * weight_decay: scaling for weight decay
+        * eps: for numerical stability"""
+        defaults = {
+            "lr": lr,
+            "b1": betas[0],
+            "b2": betas[1],
+            "wd": weight_decay,
+            "eps": eps,
+        }
         super().__init__(params, defaults)
 
     def step(self, closure: Optional[Callable] = None):
         loss = None if closure is None else closure()
         for group in self.param_groups:
             # Get the hyperparameters, if not specified for a group fallback to the defaults
-            lr, b1, b2, wd, eps = group["lr"], group["b1"], group["b2"], group["wd"], group["eps"]
+            lr, b1, b2, wd, eps = (
+                group["lr"],
+                group["b1"],
+                group["b2"],
+                group["wd"],
+                group["eps"],
+            )
             for p in group["params"]:
                 if p.grad is None:
                     continue
@@ -98,27 +117,30 @@ class AdamW(torch.optim.Optimizer):
                 # Gradient of the loss at the current time step.
                 grad = p.grad.data
                 # Update the first moment estimate.
-                m = b1 * m + (1-b1) * grad
+                m = b1 * m + (1 - b1) * grad
                 # Update the second moment estimate.
-                v = b2 * v + (1-b2) * (grad ** 2)
-                # Compute adjusted lr for iteration t.
-                adjusted_lr = lr * math.sqrt(1 - (b2 ** t)) / (1 - (b2 ** t))
+                v = b2 * v + (1 - b2) * (grad**2)
+                # Adjust m and v for iteration t to compensate for initialy empty,
+                # i.e. zero estimate "".
+                m_hat = m / (1 - b1**t)
+                v_hat = v / (1 - b2**t)
                 # Update the parameters.
-                p.data -= adjusted_lr * m / (torch.sqrt(v) + eps)
+                p.data -= lr * m_hat / (torch.sqrt(v_hat) + eps)
                 # Apply weight decay - pull the parameters towards 0.
                 p.data -= lr * wd * p.data
                 state["t"] = t + 1
                 state["m"] = m
                 state["v"] = v
-        return loss 
+        return loss
+
 
 def test_toy_adamw_training():
     losses = toy_training_example(AdamW, training_steps=130)
     print([int(l) for l in losses])
+
 
 if __name__ == "__main__":
     print("SDG test:")
     test_toy_training()
     print("AdamW test:")
     test_toy_adamw_training()
-    
