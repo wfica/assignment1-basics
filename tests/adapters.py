@@ -23,7 +23,7 @@ from cs336_basics.transformer_impl import (
 )
 from torch import nn
 from torchinfo import summary
-from cs336_basics.training_impl import cross_entropy
+from cs336_basics.training_impl import cross_entropy, AdamW
 
 
 def run_linear(
@@ -564,7 +564,7 @@ def get_adamw_cls() -> type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
