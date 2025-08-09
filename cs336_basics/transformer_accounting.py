@@ -231,7 +231,7 @@ def transformer_accounting_a_torchinfo():
     print(summary(model, input_size=(1, gpt_2_xl.context_length)))
     print("--------------------")
 
-
+# Run with `uv run -m cs336_basics.transformer_accounting`
 if __name__ == "__main__":
     transformer_accounting_a()
 # GPT 2 XL has
