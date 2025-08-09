@@ -286,6 +286,18 @@ def adamwAccounting_d():
     print(f"It would take {int(num_days)} days.")
 
 
+def learning_rate_schedule(
+    t: int, a_min: float, a_max: float, T_w: int, T_c: int
+) -> float:
+    if t < T_w:
+        return a_max * t / T_w
+    if t <= T_c:
+        return a_min + 0.5 * (a_max - a_min) * (
+            1 + math.cos(math.pi * (t - T_w) / (T_w - T_c))
+        )
+    return a_min
+
+
 # run with uv `run -m cs336_basics.training_impl`
 if __name__ == "__main__":
     print("SDG test:")

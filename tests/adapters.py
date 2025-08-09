@@ -23,7 +23,7 @@ from cs336_basics.transformer_impl import (
 )
 from torch import nn
 from torchinfo import summary
-from cs336_basics.training_impl import cross_entropy, AdamW
+from cs336_basics.training_impl import cross_entropy, AdamW, learning_rate_schedule
 
 
 def run_linear(
@@ -592,7 +592,9 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    return learning_rate_schedule(
+        it, min_learning_rate, max_learning_rate, warmup_iters, cosine_cycle_iters
+    )
 
 
 def run_save_checkpoint(
