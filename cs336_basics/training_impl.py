@@ -298,6 +298,19 @@ def learning_rate_schedule(
     return a_min
 
 
+def gradient_clipping(
+    parameters: Iterable[torch.nn.Parameter], max_l2_norm: float, eps=1e-6
+) -> None:
+    grads = [p.grad for p in parameters if p.grad is not None]
+    if not grads:
+        return
+    total_norm = torch.sqrt(sum((g.detach() ** 2).sum() for g in grads))
+    if total_norm > max_l2_norm:
+        scale = max_l2_norm / (total_norm + eps)
+        for g in grads:
+            g.mul_(scale)
+
+
 # run with uv `run -m cs336_basics.training_impl`
 if __name__ == "__main__":
     print("SDG test:")
