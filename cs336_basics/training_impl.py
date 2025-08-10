@@ -1,11 +1,13 @@
 import torch
 from torch import nn
 from collections.abc import Callable, Iterable
-from typing import Optional
+from typing import Optional, BinaryIO, IO
+import os
 import math
 import numpy as np
 from einops import rearrange, einsum
 import matplotlib.pyplot as plt
+import random
 
 
 def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> float:
@@ -309,6 +311,76 @@ def gradient_clipping(
         scale = max_l2_norm / (total_norm + eps)
         for g in grads:
             g.mul_(scale)
+
+
+def fix_seeds(seed=0):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
+def data_loading(
+    ids: np.array, batch_size: int, context_length: int, device: str = "cpu"
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Deliverable: Write a function that takes a numpy array x (integer array with token IDs), a
+    batch_size, a context_length and a PyTorch device string (e.g., 'cpu' or 'cuda:0'), and returns
+    a pair of tensors: the sampled input sequences and the corresponding next-token targets. Both ten-
+    sors should have shape (batch_size, context_length) containing token IDs, and both should be
+    placed on the requested device."""
+    starts = np.random.randint(0, len(ids) - context_length, size=batch_size)
+    input_seqs = np.stack([ids[s : s + context_length] for s in starts])
+    output_seqs = np.stack([ids[s + 1 : s + context_length + 1] for s in starts])
+    return (
+        torch.tensor(input_seqs, device=device, dtype=torch.long),
+        torch.tensor(output_seqs, device=device, dtype=torch.long),
+    )
+
+
+def save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    out: str | os.PathLike | BinaryIO | IO[bytes],
+) -> None:
+    """should dump all the state from the
+    first three parameters into the file-like object out. You can use the state_dict method of both
+    the model and the optimizer to get their relevant states and use torch.save(obj, out) to dump
+    obj into out (PyTorch supports either a path or a file-like object here). A typical choice is to
+    have obj be a dictionary, but you can use whatever format you want as long as you can load your
+    checkpoint later.
+    This function expects the following parameters:
+    * model: torch.nn.Module
+    * optimizer: torch.optim.Optimizer
+    * iteration: int
+    * out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]
+    """
+    model_state = model.state_dict()
+    optim_state = optimizer.state_dict()
+    torch.save(
+        {"model": model_state, "optimizer": optim_state, "iteration": iteration}, out
+    )
+
+
+def load_checkpoint(
+    src: str | os.PathLike | BinaryIO | IO[bytes],
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+) -> int:
+    """should load a checkpoint from src (path or file-
+    like object), and then recover the model and optimizer states from that checkpoint. Your
+    function should return the iteration number that was saved to the checkpoint. You can use
+    torch.load(src) to recover what you saved in your save_checkpoint implementation, and the
+    load_state_dict method in both the model and optimizers to return them to their previous
+    states.
+    This function expects the following parameters:
+     * src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]
+     * model: torch.nn.Module
+     * optimizer: torch.optim.Optimizer
+    """
+    saved_dict = torch.load(src)
+    model.load_state_dict(saved_dict["model"])
+    optimizer.load_state_dict(saved_dict["optimizer"])
+    return saved_dict["iteration"]
 
 
 # run with uv `run -m cs336_basics.training_impl`
