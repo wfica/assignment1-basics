@@ -413,7 +413,7 @@ def training_loop(
     num_heads: int,
     d_ff: int,
     rope_theta: float,
-    out_dir: str | os.PathLike = os.path.join("/Users/fica/cs336/assignment1-basics/data/training"),
+    out_dir: str | os.PathLike,
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
     val_ids: np.ndarray = None,
