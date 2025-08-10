@@ -8,9 +8,10 @@ import numpy as np
 from einops import rearrange, einsum
 import matplotlib.pyplot as plt
 import random
+from cs336_basics.transformer_impl import Transformer
 
 
-def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> float:
+def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     """A function to compute the cross entropy loss, which takes in predicted logits
     (o_i) and targets (x_{i+1}) and computes the cross entropy l_i =-log softmax(o_i)[x_{i+1}].
     Args:
@@ -23,7 +24,7 @@ def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> float:
     We assume batch-like dimensions always come first, before the vocabulary size dimension.
     """
     assert logits.shape[:-1] == targets.shape
-    print(logits.shape, targets.shape)
+    # print(logits.shape, targets.shape)
     logits_scaled = logits - torch.max(logits, dim=-1, keepdim=True)[0]
     e_logits_scaled = torch.exp(logits_scaled)
     nll = -torch.gather(logits_scaled, dim=-1, index=targets.unsqueeze(-1)) + torch.log(
@@ -341,6 +342,7 @@ def save_checkpoint(
     optimizer: torch.optim.Optimizer,
     iteration: int,
     out: str | os.PathLike | BinaryIO | IO[bytes],
+    loss: float | None = None,
 ) -> None:
     """should dump all the state from the
     first three parameters into the file-like object out. You can use the state_dict method of both
@@ -356,9 +358,10 @@ def save_checkpoint(
     """
     model_state = model.state_dict()
     optim_state = optimizer.state_dict()
-    torch.save(
-        {"model": model_state, "optimizer": optim_state, "iteration": iteration}, out
-    )
+    data = {"model": model_state, "optimizer": optim_state, "iteration": iteration}
+    if loss is not None:
+        data["loss"] = loss
+    torch.save(data, out)
 
 
 def load_checkpoint(
@@ -381,6 +384,91 @@ def load_checkpoint(
     model.load_state_dict(saved_dict["model"])
     optimizer.load_state_dict(saved_dict["optimizer"])
     return saved_dict["iteration"]
+
+def find_latest_checkpoint(out_dir):
+    # List all files in the directory
+    files = os.listdir(out_dir)
+    # Match files with pattern "iter_{i}"
+    pattern = re.compile(r"iter_(\d+)$")
+    max_iter = -1
+    latest_file = None
+    for fname in files:
+        match = pattern.match(fname)
+        if match:
+            i = int(match.group(1))
+            if i > max_iter:
+                max_iter = i
+                latest_file = os.path.join(out_dir, fname)
+    return latest_file, max_iter
+
+def training_loop(
+    training_steps: int,
+    save_ckpt_every: int,
+    array_with_training_text_tokens: np.array,
+    batch_size: int,
+    vocab_size: int,
+    context_length: int,
+    num_layers: int,
+    d_model: int,
+    num_heads: int,
+    d_ff: int,
+    rope_theta: float,
+    out_dir: str | os.PathLike = os.path.join("/Users/fica/cs336/assignment1-basics/data/training"),
+    device: torch.device | None = None,
+    dtype: torch.dtype | None = None,
+    val_ids: np.ndarray = None,
+    val_every: int = 500,
+):
+    os.makedirs(out_dir, exist_ok=True)
+    model = Transformer(
+        vocab_size,
+        context_length,
+        num_layers,
+        d_model,
+        num_heads,
+        d_ff,
+        rope_theta,
+        device,
+        dtype,
+    )
+    optimizer = AdamW(model.parameters)
+    losses = []
+    val_losses = []
+
+    # Try to resume from latest checkpoint
+    latest_ckpt, start_iter = find_latest_checkpoint(out_dir)
+    if latest_ckpt is not None:
+        print(f"Resuming from checkpoint {latest_ckpt} at iteration {start_iter}")
+        load_checkpoint(latest_ckpt, model, optimizer)
+    else:
+        start_iter = 0
+
+    for i in range(1, training_steps+1):
+        optimizer.zero_grad()
+        x, y = data_loading(
+            array_with_training_text_tokens, batch_size, context_length, device=device
+        )
+        pred = model(x)
+        loss = cross_entropy(pred, y)
+        losses.append(loss.cpu().item())
+        loss.backward()
+        optimizer.step()
+
+        if i % save_ckpt_every == 0 or i == training_steps:
+            fp = os.path.join(out_dir, f"iter_{i}")
+            save_checkpoint(model, optimizer, i, fp, loss=loss)
+        # --- Validation ---
+        if val_ids is not None and (i % val_every == 0 or i == training_steps):
+            model.eval()
+            with torch.no_grad():
+                x_val, y_val = data_loading(val_ids, batch_size, context_length, device=device)
+                val_logits = model(x_val)
+                val_loss = cross_entropy(val_logits, y_val).item()
+                val_losses.append(val_loss)
+            print(f"[Step {i}] Training loss: {losses[-1]:.4f} | Validation loss: {val_loss:.4f}")
+            model.train()
+
+    return losses, val_losses
 
 
 # run with uv `run -m cs336_basics.training_impl`
