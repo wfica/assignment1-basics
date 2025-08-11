@@ -443,7 +443,7 @@ def training_loop(
     else:
         start_iter = 0
 
-    for i in range(1, training_steps+1):
+    for i in range(1, training_steps + 1):
         optimizer.zero_grad()
         x, y = data_loading(
             array_with_training_text_tokens, batch_size, context_length, device=device

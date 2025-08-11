@@ -68,8 +68,8 @@ def main():
         rope_theta=args.rope_theta,
         out_dir=args.out_dir,
         device=args.device,
-        dtype=args.dtype,
-        val_ids=args.val_ids,
+        dtype=dtype,
+        val_ids=val_ids,
         val_every=args.val_every,
     )
     np.save(os.path.join(args.out_dir, "losses_train"), losses_tv[0])
