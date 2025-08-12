@@ -98,7 +98,6 @@ def task_d(tiny_stories_tokenizer,owt_tokenizer ):
     #                 "/Users/fica/cs336/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt",
     #                 "/Users/fica/cs336/assignment1-basics/data/tiny_stories_tokens-train.bin")
 
-
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
     tiny_stories_tokenizer = Tokenizer.from_files(

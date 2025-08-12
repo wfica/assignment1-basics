@@ -1,3 +1,4 @@
+import re
 import torch
 from torch import nn
 from collections.abc import Callable, Iterable
@@ -9,7 +10,8 @@ from einops import rearrange, einsum
 import matplotlib.pyplot as plt
 import random
 from cs336_basics.transformer_impl import Transformer
-
+import time
+import torch.nn.functional as F
 
 def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     """A function to compute the cross entropy loss, which takes in predicted logits
@@ -24,10 +26,9 @@ def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     We assume batch-like dimensions always come first, before the vocabulary size dimension.
     """
     assert logits.shape[:-1] == targets.shape
-    # print(logits.shape, targets.shape)
     logits_scaled = logits - torch.max(logits, dim=-1, keepdim=True)[0]
     e_logits_scaled = torch.exp(logits_scaled)
-    nll = -torch.gather(logits_scaled, dim=-1, index=targets.unsqueeze(-1)) + torch.log(
+    nll = -torch.gather(logits_scaled, dim=-1, index=targets.unsqueeze(-1)).squeeze(-1) + torch.log(
         torch.sum(e_logits_scaled, dim=-1)
     )
     return nll.mean()
@@ -321,16 +322,25 @@ def fix_seeds(seed=0):
 
 
 def data_loading(
-    ids: np.array, batch_size: int, context_length: int, device: str = "cpu"
+    ids: np.array,
+    batch_size: int,
+    context_length: int,
+    device: str = "cpu",
+    always_return_same_batch: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Deliverable: Write a function that takes a numpy array x (integer array with token IDs), a
     batch_size, a context_length and a PyTorch device string (e.g., 'cpu' or 'cuda:0'), and returns
     a pair of tensors: the sampled input sequences and the corresponding next-token targets. Both ten-
     sors should have shape (batch_size, context_length) containing token IDs, and both should be
     placed on the requested device."""
-    starts = np.random.randint(0, len(ids) - context_length, size=batch_size)
+    if always_return_same_batch:
+        starts = np.zeros(batch_size, dtype=int)
+    else:
+        starts = np.random.randint(0, len(ids) - context_length, size=batch_size)
     input_seqs = np.stack([ids[s : s + context_length] for s in starts])
     output_seqs = np.stack([ids[s + 1 : s + context_length + 1] for s in starts])
+    assert input_seqs.shape == (batch_size, context_length)
+    assert output_seqs.shape == (batch_size, context_length)
     return (
         torch.tensor(input_seqs, device=device, dtype=torch.long),
         torch.tensor(output_seqs, device=device, dtype=torch.long),
@@ -385,6 +395,7 @@ def load_checkpoint(
     optimizer.load_state_dict(saved_dict["optimizer"])
     return saved_dict["iteration"]
 
+
 def find_latest_checkpoint(out_dir):
     # List all files in the directory
     files = os.listdir(out_dir)
@@ -400,6 +411,7 @@ def find_latest_checkpoint(out_dir):
                 max_iter = i
                 latest_file = os.path.join(out_dir, fname)
     return latest_file, max_iter
+
 
 def training_loop(
     training_steps: int,
@@ -418,7 +430,9 @@ def training_loop(
     dtype: torch.dtype | None = None,
     val_ids: np.ndarray = None,
     val_every: int = 500,
+    always_train_on_the_same_batch: bool = False,
 ):
+    start_time = time.time()
     os.makedirs(out_dir, exist_ok=True)
     model = Transformer(
         vocab_size,
@@ -431,7 +445,11 @@ def training_loop(
         device,
         dtype,
     )
-    optimizer = AdamW(model.parameters)
+    # optimizer = AdamW(model.parameters())
+    for name, p in model.named_parameters():
+        print(name, p.size())
+    optimizer = torch.optim.AdamW(model.parameters())
+
     losses = []
     val_losses = []
 
@@ -446,13 +464,20 @@ def training_loop(
     for i in range(1, training_steps + 1):
         optimizer.zero_grad()
         x, y = data_loading(
-            array_with_training_text_tokens, batch_size, context_length, device=device
+            array_with_training_text_tokens,
+            batch_size,
+            context_length,
+            device=device,
+            always_return_same_batch=always_train_on_the_same_batch,
         )
         pred = model(x)
-        loss = cross_entropy(pred, y)
+        # loss = cross_entropy(pred, y)
+        loss = F.cross_entropy(pred.view(-1, pred.size(-1)), y.view(-1))
         losses.append(loss.cpu().item())
         loss.backward()
+        # print([p.abs().mean().item() for p in model.parameters()])
         optimizer.step()
+        # print([p.abs().mean().item() for p in model.parameters()])
 
         if i % save_ckpt_every == 0 or i == training_steps:
             fp = os.path.join(out_dir, f"iter_{i}")
@@ -461,13 +486,21 @@ def training_loop(
         if val_ids is not None and (i % val_every == 0 or i == training_steps):
             model.eval()
             with torch.no_grad():
-                x_val, y_val = data_loading(val_ids, batch_size, context_length, device=device)
+                x_val, y_val = data_loading(
+                    val_ids, batch_size, context_length, device=device
+                )
                 val_logits = model(x_val)
-                val_loss = cross_entropy(val_logits, y_val).item()
+                # val_loss = cross_entropy(val_logits, y_val).item()
+                val_loss = F.cross_entropy(val_logits, y_val).item()
+                # val_loss = F.cross_entropy(val_logits.view(-1, val_logits.size(-1)), y_val.view(-1)).item()
                 val_losses.append(val_loss)
-            print(f"[Step {i}] Training loss: {losses[-1]:.4f} | Validation loss: {val_loss:.4f}")
+            print(
+                f"[Step {i}] Training loss: {losses[-1]:.4f} | Validation loss: {val_loss:.4f}"
+            )
             model.train()
 
+    elapsed = time.time() - start_time
+    print(f"Training finished in {elapsed:.2f} seconds ({elapsed/60:.2f} minutes).")
     return losses, val_losses
 
 

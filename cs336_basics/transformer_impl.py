@@ -12,6 +12,7 @@ def print_model():
 def is_meta(model: nn.Module):
     return all(param.device.type == "meta" for param in model.parameters())
 
+
 class Linear(nn.Module):
 
     def __init__(
@@ -26,7 +27,6 @@ class Linear(nn.Module):
         * out_features: int final dimension of the output
         * device: torch.device | None = None Device to store the parameters on
         * dtype: torch.dtype | None = None Data type of the parameters"""
-        # super(Linear, self).__init__()
         super().__init__()
         self.W = nn.Parameter(
             torch.empty(out_features, in_features, dtype=dtype, device=device)
@@ -36,7 +36,7 @@ class Linear(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return einsum(
-            self.W, x, "out_features in_features, ... in_features -> ... out_features"
+            x, self.W, "... in_features, out_features in_features -> ... out_features"
         )
 
 
@@ -152,6 +152,7 @@ class RotaryPositionalEmbedding(nn.Module):
         self.theta = theta
         self.d_k = d_k
         self.max_seq_len = max_seq_len
+        self.device = device
         positions = torch.arange(
             0, max_seq_len, dtype=torch.float32, device=device
         )  # (max_seq_len)
@@ -170,10 +171,18 @@ class RotaryPositionalEmbedding(nn.Module):
     def _flip_tensor(self, x: torch.Tensor) -> torch.Tensor:
         """Given vector (x_1, x_2, x_3, ..., x_n) returns (-x_2, x_1, -x_4, x_3, ..., -x_n, x_{n-1}) Supports arbitrary batch dimentions before the final dimention."""
         x_even = torch.gather(
-            x, -1, torch.arange(0, x.shape[-1], 2).expand(x.shape[:-1] + (-1,))
+            x,
+            -1,
+            torch.arange(0, x.shape[-1], 2, device=self.device).expand(
+                x.shape[:-1] + (-1,)
+            ),
         )
         x_odd = torch.gather(
-            x, -1, torch.arange(1, x.shape[-1], 2).expand(x.shape[:-1] + (-1,))
+            x,
+            -1,
+            torch.arange(1, x.shape[-1], 2, device=self.device).expand(
+                x.shape[:-1] + (-1,)
+            ),
         )
         x_flipped = torch.stack([-x_odd, x_even], dim=-1).flatten(start_dim=-2)
         assert x_flipped.shape == x.shape
@@ -241,6 +250,7 @@ class MultiheadSelfAttention(nn.Module):
         assert d_model % num_heads == 0
         self.d_k = d_model // num_heads
         self.d_v = d_model // num_heads
+        self.device = device
         self.Wq = Linear(
             self.d_model, self.num_heads * self.d_k, device=device, dtype=dtype
         )
@@ -284,7 +294,9 @@ class MultiheadSelfAttention(nn.Module):
             num_heads=self.num_heads,
         )
         # casual attention mask
-        mask = (1 - torch.triu(torch.ones(seq_len, seq_len), diagonal=1)).to(bool)
+        mask = (
+            1 - torch.triu(torch.ones(seq_len, seq_len, device=self.device), diagonal=1)
+        ).to(bool)
         atten_output = scaled_dot_product_attention(Q_rotated, K_rotated, V, mask)
         atten_output_concatenated = rearrange(
             atten_output,
@@ -316,11 +328,11 @@ class TransformerBlock(nn.Module):
         self.rope = rope_module
         self.device = device
         self.dtype = dtype
-        self.rms_norm_1 = RMSNorm(self.d_model)
+        self.rms_norm_1 = RMSNorm(self.d_model, device=self.device)
         self.mha = MultiheadSelfAttention(
             self.d_model, self.num_heads, self.rope, self.device, self.dtype
         )
-        self.rms_norm_2 = RMSNorm(self.d_model)
+        self.rms_norm_2 = RMSNorm(self.d_model, device=self.device)
         self.ff = FFNSwiGLU(self.d_model, self.d_ff, self.device, self.dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -376,8 +388,8 @@ class Transformer(nn.Module):
                 for _ in range(num_layers)
             ]
         )
-        self.rms_norm = RMSNorm(self.d_model)
-        self.projection = Linear(self.d_model, self.vocab_size)
+        self.rms_norm = RMSNorm(self.d_model, device=device)
+        self.projection = Linear(self.d_model, self.vocab_size, dtype=dtype, device=device)
 
     def forward(self, in_indices: torch.Tensor) -> torch.Tensor:
         """Expects a tensor with input indices to run the language model on. Shape is (batch_size, sequence_length), where
@@ -387,11 +399,11 @@ class Transformer(nn.Module):
         Returns:
         * Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token."""
-        x = self.embeddings(in_indices) # (b s d_model)
+        x = self.embeddings(in_indices)  # (b s d_model)
         for block in self.bloks:
-            x = block(x) # (b s d_model) 
+            x = block(x)  # (b s d_model)
         x = self.rms_norm(x)  # (b s d_model)
-        x = self.projection(x)  # (b s d_model)
+        x = self.projection(x)  # (b s vocab_size)
         return x
         # y = softmax(x, -1)
         # return y
