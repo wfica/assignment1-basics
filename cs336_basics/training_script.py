@@ -34,19 +34,20 @@ def main():
     parser.add_argument(
         "--val_data",
         type=str,
-        default="/Users/fica/cs336/assignment1-basics/data/tiny_stories_tokens-valid-2.bin",
+        default="/Users/fica/cs336/assignment1-basics/data/tiny_stories_tokens-train.bin",
+        # default="/Users/fica/cs336/assignment1-basics/data/tiny_stories_tokens-valid.bin",
         help="Path to validation .npy or .bin file",
     )
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--vocab_size", type=int, default=10000)
     parser.add_argument("--context_length", type=int, default=256)
-    parser.add_argument("--num_layers", type=int, default=4)
-    parser.add_argument("--d_model", type=int, default=512)
-    parser.add_argument("--num_heads", type=int, default=16)
-    parser.add_argument("--d_ff", type=int, default=1344)
+    parser.add_argument("--num_layers", type=int, default=4 // 2)
+    parser.add_argument("--d_model", type=int, default=512 // 2)
+    parser.add_argument("--num_heads", type=int, default=16 // 2)
+    parser.add_argument("--d_ff", type=int, default=1344 // 2)
     parser.add_argument("--rope_theta", type=float, default=10000.0)
-    parser.add_argument("--training_steps", type=int, default=10000)
-    parser.add_argument("--save_ckpt_every", type=int, default=1000)
+    parser.add_argument("--training_steps", type=int, default=5_000)
+    parser.add_argument("--save_ckpt_every", type=int, default=10)
     parser.add_argument(
         "--out_dir",
         type=str,
@@ -63,8 +64,10 @@ def main():
         raise ValueError("MPS (Appe metal chip) backend not available.")
 
     # Memory-efficient loading
-    train_ids = np.memmap(args.train_data, dtype=np.int32, mode="r")
-    val_ids = np.memmap(args.val_data, dtype=np.int32, mode="r")
+    train_ids = np.memmap(args.train_data, dtype=np.int16, mode="r")
+    val_ids = np.memmap(args.val_data, dtype=np.int16, mode="r")
+    if train_ids[:10] == val_ids[:10]:
+        print("Training and validation data seems to be the same.")
 
     # Convert dtype string to torch dtype
     dtype_map = {

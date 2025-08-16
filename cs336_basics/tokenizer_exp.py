@@ -86,6 +86,7 @@ def tokenize_and_save(tokenizer: Tokenizer, in_fp: str, out_fp: str, num_process
 
     encoding = [token for chunk_encoding in results for token in chunk_encoding]
     print(f"Encoded {in_fp} in {len(encoding)} tokens.")
+    print(f"Max token = {max(encoding)}, min token = {min(encoding)}.")
     np.array(encoding, dtype=np.uint16).tofile(out_fp)
 
 

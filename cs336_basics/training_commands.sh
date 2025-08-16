@@ -22,8 +22,9 @@
 
 # Overfit test: always train on the same batch
 uv run -m cs336_basics.training_script \
-  --always_train_on_the_same_batch True \
-  --batch_size 8 \
-  --context_length 32 \
-  --training_steps 20 \
-  --val_every 1
+  --always_train_on_the_same_batch False \
+  --device=mps \
+  --batch_size 32 \
+  --context_length 256 \
+  --training_steps 200 \
+  --val_every 10
