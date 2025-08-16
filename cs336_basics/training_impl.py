@@ -12,6 +12,106 @@ import random
 from cs336_basics.transformer_impl import Transformer
 import time
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def plot_losses(
+    train_losses,
+    val_losses,
+    val_every,
+    out_dir: str | os.PathLike,
+    output_file_path="training_losses.png",
+):
+    """
+    Plots training and validation losses and saves the chart to a file.
+
+    Args:
+        train_losses (list or np.array): A list of loss values for each training step.
+        val_losses (list or np.array): A list of loss values for each validation step.
+        val_every (int): The frequency (in steps) at which validation loss was computed.
+        output_file_path (str): The path where the output plot image will be saved.
+    """
+    if not train_losses:
+        print("Warning: train_losses list is empty. Nothing to plot.")
+        return
+
+    training_steps = len(train_losses)
+
+    # Generate x-axis values for the training losses (steps 1, 2, 3, ...)
+    train_steps_x = np.arange(1, training_steps + 1)
+
+    # Generate x-axis values for the validation losses
+    # Validation is computed at each 'val_every' step and the final step.
+    val_steps_x = []
+    for i in range(1, training_steps + 1):
+        if i % val_every == 0:
+            val_steps_x.append(i)
+        # Add the final step if it wasn't already a multiple of val_every
+    if training_steps not in val_steps_x:
+        val_steps_x.append(training_steps)
+
+    # Ensure the number of validation loss points matches the calculated steps
+    if len(val_losses) != len(val_steps_x):
+        print(
+            f"Warning: Mismatch between number of validation losses ({len(val_losses)}) "
+            f"and calculated validation steps ({len(val_steps_x)}). "
+            "Please check your 'val_every' and data."
+        )
+        # Attempt to plot with what we have, but it might be misleading.
+        # Let's trim the longer list to match the shorter one for plotting.
+        min_len = min(len(val_losses), len(val_steps_x))
+        val_losses = val_losses[:min_len]
+        val_steps_x = val_steps_x[:min_len]
+
+    # Create the plot
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # Plot training loss
+    ax.plot(
+        train_steps_x,
+        train_losses,
+        label="Training Loss",
+        color="dodgerblue",
+        alpha=0.8,
+    )
+
+    # Plot validation loss
+    # Use markers to clearly show the points where validation was performed
+    ax.plot(
+        val_steps_x,
+        val_losses,
+        label="Validation Loss",
+        color="darkorange",
+        marker="o",
+        linestyle="--",
+    )
+
+    # Set plot title and labels
+    ax.set_title("Model Training and Validation Losses", fontsize=16, weight="bold")
+    ax.set_xlabel("Training Steps", fontsize=12)
+    ax.set_ylabel("Loss", fontsize=12)
+
+    # Add a legend
+    ax.legend(fontsize=11)
+
+    # Improve tick readability
+    plt.xticks(fontsize=10)
+    plt.yticks(fontsize=10)
+
+    # Save the figure to the specified file path
+    try:
+        plt.savefig(
+            os.path.join(out_dir, output_file_path), dpi=300, bbox_inches="tight"
+        )
+        print(f"Chart successfully saved to {output_file_path}")
+    except Exception as e:
+        print(f"Error saving the plot: {e}")
+
+    # Display the plot
+    plt.show()
+
 
 def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     """A function to compute the cross entropy loss, which takes in predicted logits
@@ -28,9 +128,10 @@ def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     assert logits.shape[:-1] == targets.shape
     logits_scaled = logits - torch.max(logits, dim=-1, keepdim=True)[0]
     e_logits_scaled = torch.exp(logits_scaled)
-    nll = -torch.gather(logits_scaled, dim=-1, index=targets.unsqueeze(-1)).squeeze(-1) + torch.log(
-        torch.sum(e_logits_scaled, dim=-1)
-    )
+    nll = -torch.gather(logits_scaled, dim=-1, index=targets.unsqueeze(-1)).squeeze(
+        -1
+    ) + torch.log(torch.sum(e_logits_scaled, dim=-1))
+    assert nll.shape == targets.shape
     return nll.mean()
 
 
@@ -54,8 +155,6 @@ class SGD(torch.optim.Optimizer):
                 p.data -= lr / math.sqrt(t + 1) * grad
                 state["t"] = t + 1
         return loss
-
-
 
 
 class AdamW(torch.optim.Optimizer):
@@ -115,15 +214,15 @@ class AdamW(torch.optim.Optimizer):
         return loss
 
 
-
 def learning_rate_schedule(
     t: int, a_min: float, a_max: float, T_w: int, T_c: int
 ) -> float:
+    assert T_c != T_w
     if t < T_w:
         return a_max * t / T_w
     if t <= T_c:
         return a_min + 0.5 * (a_max - a_min) * (
-            1 + math.cos(math.pi * (t - T_w) / (T_w - T_c))
+            1 + math.cos(math.pi * (t - T_w) / (T_c - T_w))
         )
     return a_min
 
@@ -155,7 +254,7 @@ def data_loading(
     context_length: int,
     device: str = "cpu",
     always_return_same_batch: bool = False,
-    vocab_size: int | None = None
+    vocab_size: int | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Deliverable: Write a function that takes a numpy array x (integer array with token IDs), a
     batch_size, a context_length and a PyTorch device string (e.g., 'cpu' or 'cuda:0'), and returns
@@ -200,7 +299,10 @@ def save_checkpoint(
     * iteration: int
     * out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]
     """
-    model_state = model.state_dict()
+    if getattr(model, "_orig_mod", None) is None:
+        model_state = model.state_dict()
+    else:
+        model_state = model._orig_mod.state_dict()
     optim_state = optimizer.state_dict()
     data = {"model": model_state, "optimizer": optim_state, "iteration": iteration}
     if loss is not None:
@@ -230,8 +332,14 @@ def load_checkpoint(
     return saved_dict["iteration"]
 
 
+def load_previous_losses(dir: str | os.PathLike) -> tuple[np.array, np.array]:
+    return (
+        np.load(os.path.join(dir, "losses_train.npy")).tolist(),
+        np.load(os.path.join(dir, "losses_valid.npy")).tolist(),
+    )
+
+
 def find_latest_checkpoint(out_dir):
-    return None, None
     # List all files in the directory
     files = os.listdir(out_dir)
     # Match files with pattern "iter_{i}"
@@ -271,6 +379,9 @@ def training_loop(
     min_lr: float = 3e-6,
     warmup_steps: int = 2000,
     gradient_clipping_max_l2_norm: float | None = None,
+    adamw_lr: float = 0.001,
+    adamw_betas: tuple = (0.9, 0.999),
+    adamw_weight_decay: float = 0.01,
 ):
     fix_seeds()
     start_time = time.time()
@@ -287,71 +398,88 @@ def training_loop(
         dtype,
     )
 
-    # optimizer = AdamW(model.parameters())
-    # for name, p in model.named_parameters():
-    #     print(name, p.size())
-    optimizer = torch.optim.AdamW(model.parameters())
-
-    losses = []
-    val_losses = []
+    # optimizer = AdamW(model.parameters(), lr=adamw_lr, betas=adamw_betas, weight_decay=adamw_weight_decay,)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=adamw_lr,
+        betas=adamw_betas,
+        weight_decay=adamw_weight_decay,
+    )
 
     # Try to resume from latest checkpoint
-    latest_ckpt, start_iter = find_latest_checkpoint(out_dir)
+    latest_ckpt, last_iter = find_latest_checkpoint(out_dir)
     if latest_ckpt is not None:
-        print(f"Resuming from checkpoint {latest_ckpt} at iteration {start_iter}")
+        print(f"Resuming from checkpoint {latest_ckpt} at iteration {last_iter}")
         load_checkpoint(latest_ckpt, model, optimizer)
+        losses, val_losses = load_previous_losses(out_dir)
+        assert (
+            len(losses) == last_iter
+        ), f"Loaded wrong number of losses ({len(losses)}) from the previous training run (last_iter={last_iter})"
     else:
-        start_iter = 0
+        losses = []
+        val_losses = []
+        last_iter = 0
 
-    for i in range(1, training_steps + 1):
-        model.train()
-        optimizer.zero_grad()
-        # TODO: make max_steps in lr schedule variable
-        lr = learning_rate_schedule(i, min_lr, max_lr, warmup_steps, training_steps)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
+    # JIT-compilation
+    model = torch.compile(model, backend="aot_eager")
 
+    try:
+        for i in range(last_iter + 1, training_steps + 1):
+            model.train()
+            optimizer.zero_grad()
+            # TODO: make max_steps in lr schedule variable
+            lr = learning_rate_schedule(i, min_lr, max_lr, warmup_steps, training_steps)
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = lr
 
-        x, y = data_loading(
-            array_with_training_text_tokens,
-            batch_size,
-            context_length,
-            device=device,
-            always_return_same_batch=always_train_on_the_same_batch,
-            vocab_size=vocab_size
-        )
-        pred = model(x)
-        assert pred.shape[-1] == vocab_size, "Expected logits per each token in vocab."
-        loss = cross_entropy(pred, y)
-        # loss = F.cross_entropy(pred.view(-1, pred.size(-1)), y.view(-1))
-        losses.append(loss.cpu().item())
-        loss.backward()
-
-        gradient_clipping(model.parameters(), gradient_clipping_max_l2_norm)
-        # print([p.abs().mean().item() for p in model.parameters()])
-        optimizer.step()
-        # print([p.abs().mean().item() for p in model.parameters()])
-
-        if i % save_ckpt_every == 0 or i == training_steps:
-            fp = os.path.join(out_dir, f"iter_{i}")
-            save_checkpoint(model, optimizer, i, fp, loss=loss)
-        # --- Validation ---
-        if val_ids is not None and (i % val_every == 0 or i == training_steps):
-            model.eval()
-            with torch.no_grad():
-                x_val, y_val = data_loading(
-                    val_ids, batch_size, context_length, device=device, vocab_size=vocab_size
-                )
-                val_logits = model(x_val)
-                val_loss = cross_entropy(val_logits, y_val).cpu().item()
-                # val_loss = F.cross_entropy(val_logits, y_val).item()
-                # val_loss = F.cross_entropy(val_logits.view(-1, val_logits.size(-1)), y_val.view(-1)).item()
-                val_losses.append(val_loss)
-            print(
-                f"[Step {i}] Training loss: {losses[-1]:.4f} | Validation loss: {val_loss:.4f}"
+            x, y = data_loading(
+                array_with_training_text_tokens,
+                batch_size,
+                context_length,
+                device=device,
+                always_return_same_batch=always_train_on_the_same_batch,
+                vocab_size=vocab_size,
             )
+            pred = model(x)
+            assert (
+                pred.shape[-1] == vocab_size
+            ), "Expected logits per each token in vocab."
+            loss = cross_entropy(pred, y)
+            losses.append(loss.cpu().item())
+            loss.backward()
+
+            gradient_clipping(model.parameters(), gradient_clipping_max_l2_norm)
+            optimizer.step()
+            # --- Validation ---
+            if val_ids is not None and (i % val_every == 0 or i == training_steps):
+                model.eval()
+                with torch.no_grad():
+                    x_val, y_val = data_loading(
+                        val_ids,
+                        batch_size,
+                        context_length,
+                        device=device,
+                        vocab_size=vocab_size,
+                    )
+                    val_logits = model(x_val)
+                    val_loss = cross_entropy(val_logits, y_val).cpu().item()
+                    val_losses.append(val_loss)
+                print(
+                    f"[Step {i}] Training loss: {losses[-1]:.4f} | Validation loss: {val_loss:.4f}"
+                )
+            # --- Save a checkpoint ---
+            if i % save_ckpt_every == 0 or i == training_steps:
+                fp = os.path.join(out_dir, f"iter_{i}")
+                save_checkpoint(model, optimizer, i, fp, loss=loss)
+                np.save(os.path.join(out_dir, "losses_train"), losses)
+                np.save(os.path.join(out_dir, "losses_valid"), val_losses)
+            # --- Stop when started overfitting ---
+            if val_ids is not None and (i % val_every == 0 or i == training_steps) and abs(val_losses[-1] - losses[-1]) > 1.0:
+                raise KeyboardInterrupt("Started overfitting")
+    except KeyboardInterrupt as e:
+        print(e)
 
     elapsed = time.time() - start_time
-    print(f"Training finished in {elapsed/60:.2f} minutes.")
+    print(f"Training finished/ stopped in {elapsed/60:.2f} minutes.")
+    plot_losses(losses, val_losses, val_every, out_dir)
     return losses, val_losses
-

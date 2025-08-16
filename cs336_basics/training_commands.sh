@@ -20,11 +20,66 @@
 #   --device "cuda:0" \
 #   --dtype "float16"
 
+############################################### 
 # Overfit test: always train on the same batch
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 150 \
+#   --val_every 10 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_1"
+
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 100 \
+#   --save_ckpt_every 250 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_2"
+
+
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 100 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.05 \
+#   --max_lr 0.0002 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_3"
+
 uv run -m cs336_basics.training_script \
-  --always_train_on_the_same_batch False \
-  --device=mps \
-  --batch_size 32 \
+  --device="mps:0" \
+  --batch_size 64 \
   --context_length 256 \
-  --training_steps 200 \
-  --val_every 10
+  --training_steps 2000 \
+  --val_every 50 \
+  --save_ckpt_every 250 \
+  --adamw_weight_decay 0.05 \
+  --max_lr 0.0001 \
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_4"
+
+uv run -m cs336_basics.training_script \
+  --device="mps:0" \
+  --batch_size 64 \
+  --context_length 256 \
+  --training_steps 2000 \
+  --val_every 50 \
+  --save_ckpt_every 250 \
+  --adamw_weight_decay 0.05 \
+  --max_lr 0.00005 \
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_5"
+
+uv run -m cs336_basics.training_script \
+  --device="mps:0" \
+  --batch_size 64 \
+  --context_length 256 \
+  --training_steps 2000 \
+  --val_every 50 \
+  --save_ckpt_every 250 \
+  --adamw_weight_decay 0.75 \
+  --max_lr 0.00005 \
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_6"
