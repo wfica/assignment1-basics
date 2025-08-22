@@ -110,7 +110,7 @@ def plot_losses(
         print(f"Error saving the plot: {e}")
 
     # Display the plot
-    plt.show()
+    # plt.show()
 
 
 def cross_entropy(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:

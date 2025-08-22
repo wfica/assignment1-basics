@@ -163,6 +163,6 @@ cython_debug/
 *.zip
 
 /data
-!/data/**/**/*.png
+!/data/**/*.png
 tests/actual.txt
 tests/expected.txt
