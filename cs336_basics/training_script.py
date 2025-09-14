@@ -7,13 +7,14 @@ from cs336_basics.tokenizer_impl import Tokenizer
 import json
 
 
-def get_tokenizer():
+def get_tokenizer() -> Tokenizer:
     special_tokens = ["<|endoftext|>"]
     tiny_stories_tokenizer = Tokenizer.from_files(
-        "/Users/fica/cs336/assignment1-basics/data/tiny_stories_bpe_vocab.pkl",
-        "/Users/fica/cs336/assignment1-basics/data/tiny_stories_bpe_merges.pkl",
+        "/Users/fica/cs336/assignment1-basics/data/tokenization/tiny_stories_bpe_vocab.pkl",
+        "/Users/fica/cs336/assignment1-basics/data/tokenization/tiny_stories_bpe_merges.pkl",
         special_tokens=special_tokens,
     )
+    print(f"Loaded tokenizer with vocab_len={len(tiny_stories_tokenizer.vocab)}")
     return tiny_stories_tokenizer
 
 
@@ -29,13 +30,13 @@ def main():
     parser.add_argument(
         "--train_data",
         type=str,
-        default="/Users/fica/cs336/assignment1-basics/data/tiny_stories_tokens-train.bin",
+        default="/Users/fica/cs336/assignment1-basics/data/tokenization/tiny_stories_tokens-train.bin",
         help="Path to training .npy or .bin file",
     )
     parser.add_argument(
         "--val_data",
         type=str,
-        default="/Users/fica/cs336/assignment1-basics/data/tiny_stories_tokens-valid.bin",
+        default="/Users/fica/cs336/assignment1-basics/data/tokenization/tiny_stories_tokens-valid.bin",
         help="Path to validation .npy or .bin file",
     )
     parser.add_argument("--batch_size", type=int, default=32)
@@ -120,6 +121,7 @@ def main():
 
     # Run training loop
     losses_tv = training_loop(
+        get_tokenizer(),
         training_steps=args.training_steps,
         save_ckpt_every=args.save_ckpt_every,
         array_with_training_text_tokens=train_ids,

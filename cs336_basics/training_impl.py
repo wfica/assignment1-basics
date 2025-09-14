@@ -14,6 +14,8 @@ import time
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import numpy as np
+from cs336_basics.decoding import decode
+from cs336_basics.tokenizer_impl import Tokenizer
 
 
 def plot_losses_and_learning_rates(
@@ -374,6 +376,7 @@ def find_latest_checkpoint(out_dir):
 
 
 def training_loop(
+    tokenizer: Tokenizer,
     training_steps: int,
     save_ckpt_every: int,
     array_with_training_text_tokens: np.array,
@@ -400,6 +403,10 @@ def training_loop(
     adamw_betas: tuple = (0.9, 0.999),
     adamw_weight_decay: float = 0.01,
 ):
+    
+    assert len(tokenizer.special_tokens) == 1
+    eos_token = tokenizer.special_token_to_index["<|endoftext|>"]
+
     fix_seeds()
     start_time = time.time()
     os.makedirs(out_dir, exist_ok=True)
@@ -485,8 +492,15 @@ def training_loop(
                     val_loss = cross_entropy(val_logits, y_val).cpu().item()
                     val_losses.append(val_loss)
                 print(
-                    f"[Step {i}] Training loss: {losses[-1]:.4f} | Validation loss: {val_loss:.4f}"
+                    f"[Step {i}] train_loss: {losses[-1]:.4f} | val_loss: {val_loss:.4f} | lr: {lr:.6f}"
                 )
+                # decode a sentence
+                prompt_tokens = x_val[0][:100]
+                decoded_tokens = decode(prompt_tokens, model, max_decoding_steps=50, eos_token_id=eos_token)
+                txt_input = tokenizer.decode(prompt_tokens.cpu().numpy())
+                txt_genrated = tokenizer.decode(decoded_tokens.cpu().numpy())
+                print(f"PROMPT\n{prompt_tokens}\n{txt_input}")
+                print(f"GENERATION\n{decoded_tokens}\n{txt_genrated}")
             # --- Save a checkpoint ---
             if i % save_ckpt_every == 0 or i == training_steps:
                 fp = os.path.join(out_dir, f"iter_{i}")
