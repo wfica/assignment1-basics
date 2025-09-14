@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from cs336_basics.decoding import decode
 from cs336_basics.tokenizer_impl import Tokenizer
-
+from collections import Counter
 
 def plot_losses_and_learning_rates(
     train_losses,
@@ -273,6 +273,8 @@ def data_loading(
     device: str = "cpu",
     always_return_same_batch: bool = False,
     vocab_size: int | None = None,
+    validation: bool = False,
+    starts_cnt_dict: dict[int, int] = None
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Deliverable: Write a function that takes a numpy array x (integer array with token IDs), a
     batch_size, a context_length and a PyTorch device string (e.g., 'cpu' or 'cuda:0'), and returns
@@ -283,6 +285,11 @@ def data_loading(
         starts = np.zeros(batch_size, dtype=int)
     else:
         starts = np.random.randint(0, len(ids) - context_length, size=batch_size)
+    if validation:
+        starts = np.arange(batch_size)
+    if starts_cnt_dict is not None and not validation:
+        for s in starts:
+            starts_cnt_dict[s] += 1
     input_seqs = np.stack([ids[s : s + context_length] for s in starts])
     output_seqs = np.stack([ids[s + 1 : s + context_length + 1] for s in starts])
     assert input_seqs.shape == (batch_size, context_length)
@@ -407,6 +414,8 @@ def training_loop(
     assert len(tokenizer.special_tokens) == 1
     eos_token = tokenizer.special_token_to_index["<|endoftext|>"]
 
+    starts_cnt_dict = Counter()
+
     fix_seeds()
     start_time = time.time()
     os.makedirs(out_dir, exist_ok=True)
@@ -454,7 +463,8 @@ def training_loop(
             optimizer.zero_grad()
             # TODO: make max_steps in lr schedule variable
             lr = learning_rate_schedule(i, min_lr, max_lr, warmup_steps, training_steps)
-            # lr = min(lr, 3e-5)
+            # ACHTUNG!!!
+            lr = min(lr, 0.00006)
             lrs.append(lr)
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
@@ -466,6 +476,7 @@ def training_loop(
                 device=device,
                 always_return_same_batch=always_train_on_the_same_batch,
                 vocab_size=vocab_size,
+                starts_cnt_dict=starts_cnt_dict,
             )
             pred = model(x)
             assert (
@@ -487,6 +498,7 @@ def training_loop(
                         context_length,
                         device=device,
                         vocab_size=vocab_size,
+                        validation=True,
                     )
                     val_logits = model(x_val)
                     val_loss = cross_entropy(val_logits, y_val).cpu().item()
@@ -494,13 +506,17 @@ def training_loop(
                 print(
                     f"[Step {i}] train_loss: {losses[-1]:.4f} | val_loss: {val_loss:.4f} | lr: {lr:.6f}"
                 )
+                start_cnts = starts_cnt_dict.most_common()
+                total_visits = sum(starts_cnt_dict.values())
+                unique_starts = len(starts_cnt_dict)
+                print(f"Most common start: {start_cnts[0]}, Least common start: {start_cnts[-1]}, Avg cnt per start: {total_visits / unique_starts}, Unique starts: {unique_starts}")
                 # decode a sentence
                 prompt_tokens = x_val[0][:100]
                 decoded_tokens = decode(prompt_tokens, model, max_decoding_steps=50, eos_token_id=eos_token)
                 txt_input = tokenizer.decode(prompt_tokens.cpu().numpy())
                 txt_genrated = tokenizer.decode(decoded_tokens.cpu().numpy())
-                print(f"PROMPT\n{prompt_tokens}\n{txt_input}")
-                print(f"GENERATION\n{decoded_tokens}\n{txt_genrated}")
+                print(f"PROMPT\n{txt_input}")
+                print(f"GENERATION\n{txt_genrated}")
             # --- Save a checkpoint ---
             if i % save_ckpt_every == 0 or i == training_steps:
                 fp = os.path.join(out_dir, f"iter_{i}")
@@ -509,7 +525,7 @@ def training_loop(
                 np.save(os.path.join(out_dir, "losses_valid"), val_losses)
                 np.save(os.path.join(out_dir, "learning_rates"), lrs)
             # --- Stop when started overfitting ---
-            if val_ids is not None and (i % val_every == 0 or i == training_steps) and abs(val_losses[-1] - losses[-1]) > .4:
+            if val_ids is not None and (i % val_every == 0 or i == training_steps) and abs(val_losses[-1] - losses[-1]) > 1:
                 raise KeyboardInterrupt("Started overfitting")
     except KeyboardInterrupt as e:
         print(e)

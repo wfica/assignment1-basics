@@ -167,4 +167,4 @@ uv run -m cs336_basics.training_script \
   --save_ckpt_every 250 \
   --adamw_weight_decay 0.05 \
   --max_lr 0.0001 \
-  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_Sep_14_0"
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_Sep_14_2"
