@@ -16,20 +16,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_losses(
+def plot_losses_and_learning_rates(
     train_losses,
     val_losses,
+    learning_rates,
     val_every,
     out_dir: str | os.PathLike,
-    output_file_path="training_losses.png",
+    output_file_path="training_plot.png",
 ):
     """
-    Plots training and validation losses and saves the chart to a file.
+    Plots training/validation losses and learning rates, and saves the chart to a file.
 
     Args:
         train_losses (list or np.array): A list of loss values for each training step.
         val_losses (list or np.array): A list of loss values for each validation step.
+        learning_rates (list or np.array): A list of learning rate values for each training step.
         val_every (int): The frequency (in steps) at which validation loss was computed.
+        out_dir (str or os.PathLike): The directory where the output plot will be saved.
         output_file_path (str): The path where the output plot image will be saved.
     """
     if not train_losses:
@@ -38,48 +41,40 @@ def plot_losses(
 
     training_steps = len(train_losses)
 
-    # Generate x-axis values for the training losses (steps 1, 2, 3, ...)
+    # Generate x-axis values for the training losses and learning rates
     train_steps_x = np.arange(1, training_steps + 1)
 
     # Generate x-axis values for the validation losses
-    # Validation is computed at each 'val_every' step and the final step.
     val_steps_x = []
     for i in range(1, training_steps + 1):
         if i % val_every == 0:
             val_steps_x.append(i)
-        # Add the final step if it wasn't already a multiple of val_every
     if training_steps not in val_steps_x:
         val_steps_x.append(training_steps)
 
-    # Ensure the number of validation loss points matches the calculated steps
     if len(val_losses) != len(val_steps_x):
         print(
             f"Warning: Mismatch between number of validation losses ({len(val_losses)}) "
             f"and calculated validation steps ({len(val_steps_x)}). "
             "Please check your 'val_every' and data."
         )
-        # Attempt to plot with what we have, but it might be misleading.
-        # Let's trim the longer list to match the shorter one for plotting.
         min_len = min(len(val_losses), len(val_steps_x))
         val_losses = val_losses[:min_len]
         val_steps_x = val_steps_x[:min_len]
 
     # Create the plot
     plt.style.use("seaborn-v0_8-whitegrid")
-    fig, ax = plt.subplots(figsize=(12, 7))
+    fig, ax1 = plt.subplots(figsize=(12, 7))
 
-    # Plot training loss
-    ax.plot(
+    # Plot training and validation loss on the first y-axis
+    p1 = ax1.plot(
         train_steps_x,
         train_losses,
         label="Training Loss",
         color="dodgerblue",
         alpha=0.8,
     )
-
-    # Plot validation loss
-    # Use markers to clearly show the points where validation was performed
-    ax.plot(
+    p2 = ax1.plot(
         val_steps_x,
         val_losses,
         label="Validation Loss",
@@ -88,26 +83,47 @@ def plot_losses(
         linestyle="--",
     )
 
-    # Set plot title and labels
-    ax.set_title("Model Training and Validation Losses", fontsize=16, weight="bold")
-    ax.set_xlabel("Training Steps", fontsize=12)
-    ax.set_ylabel("Loss", fontsize=12)
+    # Set labels for the first y-axis
+    ax1.set_xlabel("Training Steps", fontsize=12)
+    ax1.set_ylabel("Loss", fontsize=12, color="black")
+    ax1.tick_params(axis="y", labelcolor="black")
 
-    # Add a legend
-    ax.legend(fontsize=11)
+    # Create a second y-axis for the learning rate that shares the same x-axis. [1]
+    ax2 = ax1.twinx()
+    p3 = ax2.plot(
+        train_steps_x,
+        learning_rates,
+        label="Learning Rate",
+        color="green",
+        alpha=0.6,
+        linestyle="-.",
+    )
+
+    # Set labels for the second y-axis
+    ax2.set_ylabel("Learning Rate", fontsize=12, color="green")
+    ax2.tick_params(axis="y", labelcolor="green")
+
+    # Set plot title and a combined legend for all plots
+    ax1.set_title(
+        "Training & Validation Losses and Learning Rate", fontsize=16, weight="bold"
+    )
+    plots = p1 + p2 + p3
+    labels = [p.get_label() for p in plots]
+    ax1.legend(plots, labels, loc="best", fontsize=11)
 
     # Improve tick readability
     plt.xticks(fontsize=10)
-    plt.yticks(fontsize=10)
 
-    # Save the figure to the specified file path
+    # Save the figure
     try:
         plt.savefig(
             os.path.join(out_dir, output_file_path), dpi=300, bbox_inches="tight"
         )
-        print(f"Chart successfully saved to {output_file_path}")
+        print(f"Chart successfully saved to {os.path.join(out_dir, output_file_path)}")
     except Exception as e:
         print(f"Error saving the plot: {e}")
+    finally:
+        plt.close(fig)
 
     # Display the plot
     # plt.show()
@@ -336,6 +352,7 @@ def load_previous_losses(dir: str | os.PathLike) -> tuple[np.array, np.array]:
     return (
         np.load(os.path.join(dir, "losses_train.npy")).tolist(),
         np.load(os.path.join(dir, "losses_valid.npy")).tolist(),
+        np.load(os.path.join(dir, "learning_rates.npy")).tolist()
     )
 
 
@@ -411,7 +428,7 @@ def training_loop(
     if latest_ckpt is not None:
         print(f"Resuming from checkpoint {latest_ckpt} at iteration {last_iter}")
         load_checkpoint(latest_ckpt, model, optimizer)
-        losses, val_losses = load_previous_losses(out_dir)
+        losses, val_losses, lrs = load_previous_losses(out_dir)
         assert (
             len(losses) == last_iter
         ), f"Loaded wrong number of losses ({len(losses)}) from the previous training run (last_iter={last_iter})"
@@ -419,6 +436,7 @@ def training_loop(
         losses = []
         val_losses = []
         last_iter = 0
+        lrs = []
 
     # JIT-compilation
     model = torch.compile(model, backend="aot_eager")
@@ -429,6 +447,8 @@ def training_loop(
             optimizer.zero_grad()
             # TODO: make max_steps in lr schedule variable
             lr = learning_rate_schedule(i, min_lr, max_lr, warmup_steps, training_steps)
+            # lr = min(lr, 3e-5)
+            lrs.append(lr)
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
 
@@ -473,13 +493,14 @@ def training_loop(
                 save_checkpoint(model, optimizer, i, fp, loss=loss)
                 np.save(os.path.join(out_dir, "losses_train"), losses)
                 np.save(os.path.join(out_dir, "losses_valid"), val_losses)
+                np.save(os.path.join(out_dir, "learning_rates"), lrs)
             # --- Stop when started overfitting ---
-            if val_ids is not None and (i % val_every == 0 or i == training_steps) and abs(val_losses[-1] - losses[-1]) > 1.0:
+            if val_ids is not None and (i % val_every == 0 or i == training_steps) and abs(val_losses[-1] - losses[-1]) > .4:
                 raise KeyboardInterrupt("Started overfitting")
     except KeyboardInterrupt as e:
         print(e)
 
     elapsed = time.time() - start_time
     print(f"Training finished/ stopped in {elapsed/60:.2f} minutes.")
-    plot_losses(losses, val_losses, val_every, out_dir)
+    plot_losses_and_learning_rates(losses, val_losses, lrs, val_every, out_dir)
     return losses, val_losses

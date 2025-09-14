@@ -51,35 +51,109 @@
 #   --max_lr 0.0002 \
 #   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_3"
 
-uv run -m cs336_basics.training_script \
-  --device="mps:0" \
-  --batch_size 64 \
-  --context_length 256 \
-  --training_steps 2000 \
-  --val_every 50 \
-  --save_ckpt_every 250 \
-  --adamw_weight_decay 0.05 \
-  --max_lr 0.0001 \
-  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_4"
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 50 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.05 \
+#   --max_lr 0.0001 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_4"
+
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 50 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.05 \
+#   --max_lr 0.00005 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_5"
+
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 50 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.75 \
+#   --max_lr 0.00005 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_6"
+
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 50 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.05 \
+#   --max_lr 0.0001 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_7"
+
+# Fix the max lr to 3e-5
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 50 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.05 \
+#   --max_lr 0.0001 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_7"
+
+# uv run -m cs336_basics.training_script \
+#   --device="mps:0" \
+#   --batch_size 64 \
+#   --context_length 256 \
+#   --training_steps 2000 \
+#   --val_every 50 \
+#   --save_ckpt_every 250 \
+#   --adamw_weight_decay 0.05 \
+#   --max_lr 0.00001 \
+#   --min_lr 0.000001 \
+#   --out_dir="/Users/fica/cs336/assignment1-basics/data/training_9"
 
 uv run -m cs336_basics.training_script \
   --device="mps:0" \
   --batch_size 64 \
   --context_length 256 \
-  --training_steps 2000 \
-  --val_every 50 \
+  --training_steps 5000 \
+  --val_every 25 \
   --save_ckpt_every 250 \
   --adamw_weight_decay 0.05 \
-  --max_lr 0.00005 \
-  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_5"
+  --max_lr 0.00001 \
+  --min_lr 0.000001 \
+  --num_layers=4 \
+  --d_model=256 \
+  --d_ff=704 \
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_9_smaller"
 
 uv run -m cs336_basics.training_script \
   --device="mps:0" \
   --batch_size 64 \
   --context_length 256 \
-  --training_steps 2000 \
+  --training_steps 5000 \
   --val_every 50 \
   --save_ckpt_every 250 \
-  --adamw_weight_decay 0.75 \
-  --max_lr 0.00005 \
-  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_6"
+  --adamw_weight_decay 0.05 \
+  --max_lr 0.000005 \
+  --min_lr 0.0000005 \
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_10"
+
+  uv run -m cs336_basics.training_script \
+  --device="mps:0" \
+  --batch_size 64 \
+  --context_length 256 \
+  --training_steps 5000 \
+  --val_every 50 \
+  --save_ckpt_every 250 \
+  --adamw_weight_decay 0.01 \
+  --max_lr 0.000005 \
+  --min_lr 0.0000005 \
+  --out_dir="/Users/fica/cs336/assignment1-basics/data/training_11"
