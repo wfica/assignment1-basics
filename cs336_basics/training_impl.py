@@ -18,6 +18,73 @@ from cs336_basics.decoding import decode
 from cs336_basics.tokenizer_impl import Tokenizer
 from collections import Counter
 
+def plot_training_statistics(
+    gradient_stats: list,
+    activation_stats: list,
+    training_steps: int,
+    out_dir: str | os.PathLike,
+    output_file_path="training_statistics.png",
+):
+    """
+    Plots gradient and activation statistics over training steps.
+    
+    Args:
+        gradient_stats (list): List of dictionaries containing gradient statistics per step
+        activation_stats (list): List of dictionaries containing activation statistics per step
+        training_steps (int): Total number of training steps
+        out_dir (str | os.PathLike): Directory to save the plot
+        output_file_path (str): Name of the output file
+    """
+    if not gradient_stats or not activation_stats:
+        print("Warning: Statistics lists are empty. Nothing to plot.")
+        return
+
+    steps = np.arange(1, len(gradient_stats) + 1)
+    
+    # Create subplots for different statistics
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 14))
+    
+    # Plot gradient statistics
+    grad_metrics = ['grad_mean', 'grad_std', 'grad_max', 'grad_min']
+    for metric in grad_metrics:
+        values = [stats[metric] for stats in gradient_stats]
+        ax1.plot(steps, values, label=metric, alpha=0.8)
+    
+    ax1.set_xlabel("Training Steps", fontsize=12)
+    ax1.set_ylabel("Gradient Statistics", fontsize=12)
+    ax1.set_title("Gradient Statistics Over Training", fontsize=16, weight="bold")
+    ax1.legend(loc="best", fontsize=11)
+    ax1.set_yscale('log')  # Use log scale for better visualization
+    
+    # Plot activation statistics
+    # Get all unique parameter names from the first stats entry
+    if activation_stats and activation_stats[0]:
+        param_names = list(activation_stats[0].keys())
+        for param in param_names:
+            if '_norm' in param:  # Only plot norms to avoid cluttering
+                values = [stats[param] for stats in activation_stats]
+                ax2.plot(steps, values, label=param, alpha=0.8)
+    
+    ax2.set_xlabel("Training Steps", fontsize=12)
+    ax2.set_ylabel("Parameter Norms", fontsize=12)
+    ax2.set_title("Parameter Norms Over Training", fontsize=16, weight="bold")
+    ax2.legend(loc="best", fontsize=11)
+    ax2.set_yscale('log')  # Use log scale for better visualization
+    
+    plt.tight_layout()
+    
+    # Save the figure
+    try:
+        plt.savefig(
+            os.path.join(out_dir, output_file_path), dpi=300, bbox_inches="tight"
+        )
+        print(f"Statistics chart saved to {os.path.join(out_dir, output_file_path)}")
+    except Exception as e:
+        print(f"Error saving the plot: {e}")
+    finally:
+        plt.close(fig)
+
 def plot_losses_and_learning_rates(
     train_losses,
     val_losses,
@@ -245,6 +312,54 @@ def learning_rate_schedule(
     return a_min
 
 
+def compute_gradient_stats(parameters: Iterable[torch.nn.Parameter]) -> dict:
+    """Compute statistics about gradients"""
+    grads = [p.grad for p in parameters if p.grad is not None]
+    if not grads:
+        return {}
+    grad_norms = [torch.norm(g).item() for g in grads]
+    return {
+        'grad_mean': np.mean(grad_norms),
+        'grad_std': np.std(grad_norms),
+        'grad_max': max(grad_norms),
+        'grad_min': min(grad_norms)
+    }
+
+def compute_activation_stats(model: nn.Module) -> dict:
+    """Compute statistics about layer activations and parameters"""
+    stats = {}
+    activation_dict = {}
+
+    # Hook to capture activations
+    def hook_fn(name):
+        def hook(module, input, output):
+            activation_dict[name] = output.detach()
+        return hook
+
+    # Register hooks for all modules
+    handles = []
+    for name, module in model.named_modules():
+        if isinstance(module, (nn.Linear, nn.LayerNorm)) or 'attention' in name.lower():
+            handles.append(module.register_forward_hook(hook_fn(name)))
+
+    # Record parameter norms
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            stats[f'{name}_norm'] = torch.norm(param).item()
+
+    # Record activation statistics
+    for name, activation in activation_dict.items():
+        if isinstance(activation, torch.Tensor):
+            stats[f'{name}_act_mean'] = torch.mean(activation).item()
+            stats[f'{name}_act_std'] = torch.std(activation).item()
+            stats[f'{name}_act_norm'] = torch.norm(activation).item()
+
+    # Remove the hooks
+    for handle in handles:
+        handle.remove()
+
+    return stats
+
 def gradient_clipping(
     parameters: Iterable[torch.nn.Parameter], max_l2_norm: float | None, eps=1e-6
 ) -> None:
@@ -457,14 +572,16 @@ def training_loop(
     # JIT-compilation
     model = torch.compile(model, backend="aot_eager")
 
+    # Initialize stats tracking
+    gradient_stats_history = []
+    activation_stats_history = []
+    
     try:
         for i in range(last_iter + 1, training_steps + 1):
             model.train()
             optimizer.zero_grad()
             # TODO: make max_steps in lr schedule variable
             lr = learning_rate_schedule(i, min_lr, max_lr, warmup_steps, training_steps)
-            # ACHTUNG!!!
-            lr = min(lr, 0.00006)
             lrs.append(lr)
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
@@ -483,11 +600,31 @@ def training_loop(
                 pred.shape[-1] == vocab_size
             ), "Expected logits per each token in vocab."
             loss = cross_entropy(pred, y)
+            # Check for invalid loss
+            if not torch.isfinite(loss):
+                raise ValueError("Loss is NaN or Inf")
             losses.append(loss.cpu().item())
             loss.backward()
 
+            # Collect gradient and activation statistics
+            grad_stats = compute_gradient_stats(model.parameters())
+            activation_stats = compute_activation_stats(model)
+            gradient_stats_history.append(grad_stats)
+            activation_stats_history.append(activation_stats)
+
             gradient_clipping(model.parameters(), gradient_clipping_max_l2_norm)
             optimizer.step()
+
+            # Log statistics periodically
+            if i % val_every == 0:
+                print("\nGradient Statistics:")
+                for k, v in grad_stats.items():
+                    print(f"{k}: {v:.6f}")
+                print("\nActivation Statistics:")
+                for k, v in activation_stats.items():
+                    print(f"{k}: {v:.6f}")
+                print()
+
             # --- Validation ---
             if val_ids is not None and (i % val_every == 0 or i == training_steps):
                 model.eval()
@@ -517,20 +654,31 @@ def training_loop(
                 txt_genrated = tokenizer.decode(decoded_tokens.cpu().numpy())
                 print(f"PROMPT\n{txt_input}")
                 print(f"GENERATION\n{txt_genrated}")
-            # --- Save a checkpoint ---
-            if i % save_ckpt_every == 0 or i == training_steps:
+
+            def save_checkpoint_and_stats():
                 fp = os.path.join(out_dir, f"iter_{i}")
                 save_checkpoint(model, optimizer, i, fp, loss=loss)
                 np.save(os.path.join(out_dir, "losses_train"), losses)
                 np.save(os.path.join(out_dir, "losses_valid"), val_losses)
                 np.save(os.path.join(out_dir, "learning_rates"), lrs)
+                np.save(os.path.join(out_dir, "gradient_stats.npy"), gradient_stats_history)
+                np.save(os.path.join(out_dir, "activation_stats.npy"), activation_stats_history)
+            
+            # --- Save a checkpoint ---
+            if i % save_ckpt_every == 0 or i == training_steps:
+                save_checkpoint_and_stats()
+                
             # --- Stop when started overfitting ---
             if val_ids is not None and (i % val_every == 0 or i == training_steps) and abs(val_losses[-1] - losses[-1]) > 1:
+                # Save final state before stopping
+                save_checkpoint_and_stats()
                 raise KeyboardInterrupt("Started overfitting")
+            
     except KeyboardInterrupt as e:
         print(e)
 
     elapsed = time.time() - start_time
     print(f"Training finished/ stopped in {elapsed/60:.2f} minutes.")
     plot_losses_and_learning_rates(losses, val_losses, lrs, val_every, out_dir)
+    plot_training_statistics(gradient_stats_history, activation_stats_history, training_steps, out_dir)
     return losses, val_losses
